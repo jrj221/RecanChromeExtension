@@ -7,6 +7,10 @@
 const GZ = /\.gz(\?|$)/i;
 const MARK = "data-webrecan";
 
+// Easter egg: this fraction of clicks goes somewhere else instead.
+const EASTER_EGG_ODDS = 0.01;
+const EASTER_EGG_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+
 function findRecordings() {
   // The submission page embeds its files (with presigned S3 URLs) as React props.
   const el = document.querySelector('[data-react-class="SubmissionGrader"]');
@@ -46,6 +50,10 @@ function makeButton(rec) {
     // The name often sits inside a link or tab; don't also trigger that.
     event.preventDefault();
     event.stopPropagation();
+    if (Math.random() < EASTER_EGG_ODDS) {
+      window.open(EASTER_EGG_URL, "_blank", "noopener");
+      return;
+    }
     run(rec, btn);
   });
   return btn;
