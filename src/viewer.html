@@ -1,0 +1,65 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recan viewer</title>
+<link rel="icon" type="image/png" href="../icons/icon-32.png">
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #fff; --text: #1c2127; --muted: #6b7480; --line: #e3e6ea;
+    --accent: #1a73e8; --ok: #1e8e3e; --err: #c5221f; --err-bg: #fdecea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171b; --card: #1d2126; --text: #e8eaed; --muted: #9aa3ad; --line: #2c3238;
+      --accent: #8ab4f8; --ok: #81c995; --err: #f28b82; --err-bg: #3a1f1e;
+    }
+  }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #loading { min-height: 100%; display: flex; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box; }
+  .card { width: 100%; max-width: 420px; background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 28px 28px 24px; box-shadow: 0 6px 24px rgba(0, 0, 0, .08); }
+  .head { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
+  .spinner { flex: none; width: 26px; height: 26px; border-radius: 50%;
+    border: 3px solid var(--line); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+  .failed .spinner { display: none; }
+  h1 { margin: 0; font-size: 18px; font-weight: 650; }
+  .file { margin: 0 0 20px; color: var(--muted); font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+    overflow-wrap: anywhere; }
+  .steps { list-style: none; margin: 0; padding: 0; }
+  .steps li { display: flex; align-items: center; gap: 12px; padding: 7px 0; color: var(--muted); }
+  .steps .icon { flex: none; width: 18px; height: 18px; border-radius: 50%; box-sizing: border-box;
+    border: 2px solid var(--line); display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #fff; }
+  .steps li[data-state="active"] { color: var(--text); }
+  .steps li[data-state="active"] .icon { border-color: var(--line); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+  .steps li[data-state="done"] { color: var(--text); }
+  .steps li[data-state="done"] .icon { background: var(--ok); border-color: var(--ok); }
+  .steps li[data-state="done"] .icon::after { content: "✓"; }
+  .steps li[data-state="error"] { color: var(--err); }
+  .steps li[data-state="error"] .icon { background: var(--err); border-color: var(--err); }
+  .steps li[data-state="error"] .icon::after { content: "!"; }
+  .hint { margin: 16px 0 0; font-size: 12.5px; color: var(--muted); }
+  #error { margin: 18px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--err-bg); color: var(--err);
+    font-size: 13px; overflow-wrap: anywhere; white-space: pre-wrap; }
+  iframe { display: none; border: 0; width: 100%; height: 100%; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner, .steps .icon { animation-duration: 3s !important; } }
+</style>
+<div id="loading">
+  <div class="card" id="card">
+    <div class="head">
+      <div class="spinner" aria-hidden="true"></div>
+      <h1 id="title">Preparing recording</h1>
+    </div>
+    <p class="file" id="filename"></p>
+    <ul class="steps">
+      <li id="step-download" data-state="active"><span class="icon"></span>Downloading recording</li>
+      <li id="step-python" data-state="active"><span class="icon"></span>Starting Python</li>
+      <li id="step-recan" data-state="pending"><span class="icon"></span>Analyzing with recan</li>
+    </ul>
+    <p class="hint" id="hint">Everything runs in your browser. The recording is never saved to disk.</p>
+    <div id="error" role="alert" hidden></div>
+  </div>
+</div>
+<iframe id="player" src="sandbox.html" title="Recording playback"></iframe>
+<script type="module" src="viewer.js"></script>

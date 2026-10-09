@@ -1,0 +1,4 @@
+*.gz
+vendor/
+upstream/
+recan-files.json

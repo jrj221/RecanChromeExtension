@@ -1,0 +1,9 @@
+.webrecan-btn { margin: 0 8px 0 18px; padding: 2px 10px; border: 1px solid #1a73e8; border-radius: 4px;
+  background: #fff; color: #1a73e8; font: 600 12px system-ui, sans-serif; cursor: pointer; vertical-align: middle; }
+.webrecan-btn:hover:not(:disabled) { background: #1a73e8; color: #fff; }
+.webrecan-btn:disabled { opacity: .6; cursor: default; }
+#webrecan-panel { position: fixed; right: 16px; bottom: 16px; z-index: 99999; max-width: 340px;
+  background: #fff; color: #222; border: 1px solid #ccc; border-radius: 8px; padding: 10px 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.2); font: 13px system-ui, sans-serif; }
+#webrecan-panel div { display: flex; gap: 8px; justify-content: space-between; align-items: center; margin-top: 6px; }
+#webrecan-panel span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

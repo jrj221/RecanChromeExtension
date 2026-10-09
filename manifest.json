@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "WebRecan",
+  "version": "1.0.0",
+  "description": "View BYU recan code recordings directly from Gradescope.",
+  "host_permissions": [
+    "https://www.gradescope.com/*",
+    "https://production-gradescope-uploads.s3-us-west-2.amazonaws.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.gradescope.com/*"
+      ],
+      "js": [
+        "src/content.js"
+      ],
+      "css": [
+        "src/content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
+    "sandbox": "sandbox allow-scripts allow-modals; script-src 'self' 'unsafe-inline'; object-src 'self'"
+  },
+  "sandbox": {
+    "pages": [
+      "src/sandbox.html"
+    ]
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}
