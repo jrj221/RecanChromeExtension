@@ -11,9 +11,10 @@ const MARK = "data-webrecan";
 const EASTER_EGG_ODDS = 0.01;
 const EASTER_EGG_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
 
-function findRecordings() {
+/** Recordings listed in the SubmissionGrader props found in `root` (a Document). */
+function parseRecordings(root) {
   // The submission page embeds its files (with presigned S3 URLs) as React props.
-  const el = document.querySelector('[data-react-class="SubmissionGrader"]');
+  const el = root.querySelector('[data-react-class="SubmissionGrader"]');
   if (!el) return [];
   let props;
   try {
@@ -23,7 +24,30 @@ function findRecordings() {
   }
   return (props.files || [])
     .filter((f) => GZ.test(f.path || "") && (f.url || f.file?.url))
-    .map((f) => ({ url: f.url || f.file.url, name: f.path }));
+    // Every student's recording has the same name, so identify files by id, not name.
+    .map((f) => ({ id: String(f.id ?? f.uuid ?? f.url ?? f.file.url), url: f.url || f.file.url, name: f.path }));
+}
+
+// Gradescope can move between submissions (Next student, etc.) without reloading the
+// page. The props in the DOM then still belong to the submission we first loaded, so
+// for any other URL we fetch that page and read its props instead.
+const loadedPath = location.pathname;
+const recordingsByPath = new Map(); // pathname -> recordings, for pages other than loadedPath
+
+function currentRecordings() {
+  const path = location.pathname;
+  if (path === loadedPath) return parseRecordings(document);
+  if (!recordingsByPath.has(path)) {
+    recordingsByPath.set(path, []); // until the fetch finishes (or if it fails)
+    fetch(location.pathname + location.search, { credentials: "include" })
+      .then((res) => (res.ok ? res.text() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((html) => {
+        recordingsByPath.set(path, parseRecordings(new DOMParser().parseFromString(html, "text/html")));
+        render();
+      })
+      .catch((e) => console.warn("[webrecan] could not load recordings for", path, e));
+  }
+  return recordingsByPath.get(path);
 }
 
 async function run(rec, button) {
@@ -44,7 +68,8 @@ function makeButton(rec) {
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "webrecan-btn";
-  btn.setAttribute(MARK, rec.name);
+  btn.setAttribute(MARK, rec.id);
+  btn.recording = rec; // updated in place if the page reuses this button for another student
   btn.textContent = "Run recan";
   btn.addEventListener("click", (event) => {
     // The name often sits inside a link or tab; don't also trigger that.
@@ -54,7 +79,7 @@ function makeButton(rec) {
       window.open(EASTER_EGG_URL, "_blank", "noopener");
       return;
     }
-    run(rec, btn);
+    run(btn.recording, btn);
   });
   return btn;
 }
@@ -73,9 +98,14 @@ function findNameElements(rec) {
   return found;
 }
 
-function hasButton(anchor, rec) {
+/** Make sure the button after `anchor` is for `rec`, reusing or replacing a stale one. */
+function ensureButton(anchor, rec) {
   const next = anchor.nextElementSibling;
-  return !!next && next.getAttribute(MARK) === rec.name;
+  if (next?.classList.contains("webrecan-btn")) {
+    if (next.getAttribute(MARK) === rec.id) return;
+    next.remove(); // left over from another submission
+  }
+  anchor.insertAdjacentElement("afterend", makeButton(rec));
 }
 
 let panel;
@@ -90,7 +120,7 @@ function renderFallback(unplaced) {
     panel.id = "webrecan-panel";
     document.body.appendChild(panel);
   }
-  const key = unplaced.map((r) => r.url).join("|");
+  const key = unplaced.map((r) => r.id).join("|");
   if (panel.dataset.key === key) return;
   panel.dataset.key = key;
   panel.replaceChildren();
@@ -107,8 +137,16 @@ function renderFallback(unplaced) {
 }
 
 function render() {
+  const recordings = currentRecordings();
+
+  // Drop buttons for files that are no longer on this submission.
+  const current = new Set(recordings.map((r) => r.id));
+  for (const btn of document.querySelectorAll(".webrecan-btn")) {
+    if (!current.has(btn.getAttribute(MARK))) btn.remove();
+  }
+
   const unplaced = [];
-  for (const rec of findRecordings()) {
+  for (const rec of recordings) {
     const anchors = findNameElements(rec);
     if (!anchors.length) {
       unplaced.push(rec);
@@ -117,7 +155,7 @@ function render() {
     for (const el of anchors) {
       // Insert after the enclosing link/tab so a click doesn't nest inside it.
       const anchor = el.closest("a, button, [role=tab]") || el;
-      if (!hasButton(anchor, rec)) anchor.insertAdjacentElement("afterend", makeButton(rec));
+      ensureButton(anchor, rec);
     }
   }
   renderFallback(unplaced);
