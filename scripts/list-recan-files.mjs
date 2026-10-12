@@ -3,11 +3,14 @@
 // folder, so the list is made here. Nothing is copied: the files are read straight
 // from upstream/recan/ at run time. Also lists our pydivsufsort stand-in.
 import { readdirSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const recan = join(root, "upstream", "recan");
+
+// The extension fetches these as URLs, so always use forward slashes (Windows paths use \\).
+const posix = (path) => path.split(sep).join("/");
 
 const files = [];
 function walk(dir) {
@@ -15,7 +18,7 @@ function walk(dir) {
     if (name === "__pycache__" || name.endsWith(".pyc")) continue;
     const path = join(dir, name);
     if (statSync(path).isDirectory()) walk(path);
-    else files.push({ src: relative(root, path), dest: relative(join(root, "upstream"), path) });
+    else files.push({ src: posix(relative(root, path)), dest: posix(relative(join(root, "upstream"), path)) });
   }
 }
 walk(recan);

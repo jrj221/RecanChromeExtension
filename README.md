@@ -49,7 +49,7 @@ It runs three scripts in order. Each one is also runnable on its own.
 
 | Step | Script | What it does | Where it ends up |
 |---|---|---|---|
-| 1 | `vendor-pyodide.mjs` | Downloads **Pyodide**, a copy of the Python interpreter compiled to run inside a browser (about 16 MB). The download is skipped if you already have the right version. | `vendor/pyodide/` |
+| 1 | `vendor-pyodide.mjs` | Downloads **Pyodide**, a copy of the Python interpreter compiled to run inside a browser (about 16 MB). Files are checked against published hashes, and the download is skipped if you already have the right version. It uses only Node itself, so `npm` and `tar` aren't needed. | `vendor/pyodide/` |
 | 2 | `fetch-upstream.mjs` | Clones **recan** with `git clone` of the BYU-CS-Course-Ops repo, or `git pull` if it's already cloned. | `upstream/` |
 | 3 | `list-recan-files.mjs` | Writes a list of the files in `upstream/recan/`, plus our one stand-in file (see [the FAQ](#what-is-pydivsufsort-and-how-does-the-stand-in-work)). A browser page can't list a folder, so the extension needs this list to know which files to load into Python. Nothing is copied: the extension reads the files straight from `upstream/`. | `recan-files.json` |
 

@@ -12,7 +12,9 @@ const git = (...args) => execFileSync("git", args, { stdio: "inherit" });
 if (existsSync(join(dir, ".git"))) {
   git("-C", dir, "pull", "--ff-only");
 } else {
-  git("clone", REPO, dir);
+  // No line-ending conversion, so the files are byte-identical on every OS (Windows git
+  // would otherwise turn LF into CRLF).
+  git("-c", "core.autocrlf=false", "clone", REPO, dir);
 }
 const version = readFileSync(join(dir, "recan", "VERSION"), "utf8").trim();
 console.log(`upstream recan ${version}`);
