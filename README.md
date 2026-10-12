@@ -7,30 +7,40 @@ It's the same as downloading the recording and running
 `recan view <recording_file> --exclude .html`, without the download, the terminal,
 or the file left behind.
 
+It also checks every recording when the page opens. A button turns **red** when the recording has under
+5 minutes of non-idle time, has unapproved pastes, or doesn't start with the assignment's starter code, and an
+**?** button next to every recording shows the details, and says why when it's red. See [When does a Run Recan button turn red?](#when-does-a-run-recan-button-turn-red)
+
 This repo contains only the extension. It does not contain recan itself. See the `Install` section for more info.
 
 ## Contents
 
 - [Install](#install)
   - [What `setup.mjs` does](#what-setupmjs-does)
+  - [Optional: starter-code checks](#optional-starter-code-checks)
 - [Testing](#testing)
 - [Layout](#layout)
 - [FAQ](#faq)
   - [How do I update recan?](#how-do-i-update-recan)
+  - [When does a Run Recan button turn red?](#when-does-a-run-recan-button-turn-red)
+  - [What does the ? button show?](#what-does-the--button-show)
+  - [How does it know which starter code to use?](#how-does-it-know-which-starter-code-to-use)
+  - [What if the starter-code script says unauthorized?](#what-if-the-starter-code-script-says-unauthorized)
+  - [How does the extension check recordings before I click?](#how-does-the-extension-check-recordings-before-i-click)
   - [What happens when I click Run Recan?](#what-happens-when-i-click-run-recan)
   - [Is the recording saved or uploaded anywhere?](#is-the-recording-saved-or-uploaded-anywhere)
   - [Why run recan's Python in the browser instead of rewriting it in JavaScript?](#why-run-recans-python-in-the-browser-instead-of-rewriting-it-in-javascript)
   - [What is `pydivsufsort`, and how does the stand-in work?](#what-is-pydivsufsort-and-how-does-the-stand-in-work)
   - [Why does the player open in a sandboxed frame?](#why-does-the-player-open-in-a-sandboxed-frame)
   - [Why `--exclude .html`?](#why---exclude-html)
-  - [Why does the first click take a moment?](#why-does-the-first-click-take-a-moment)
+  - [Why does the first page take a moment?](#why-does-the-first-page-take-a-moment)
   - [Why does the manifest allow an Amazon S3 address?](#why-does-the-manifest-allow-an-amazon-s3-address)
 
 <br>
 
 ## Install
 
-You need Node 18+ and git. From the repo root (the folder with `manifest.json`) run:
+You need Chrome 116+, Node 18+ and git. From the repo root (the folder with `manifest.json`) run:
 
 ```
 node scripts/setup.mjs
@@ -57,17 +67,42 @@ It runs three scripts in order. Each one is also runnable on its own.
 
 <br>
 
+### Optional: starter-code checks
+
+Out of the box the extension doesn't know each assignment's starter code, so it skips the starter-code check. If you
+have access to the private **BYU-CS-Course-Ops/CS110-course-content** repo, one extra command turns the check on:
+
+```
+node scripts/fetch-starter-code.mjs
+```
+
+It downloads only the assignments' starter `.py` files, about 1.4 MB instead of the whole 500+ MB repo, into
+`starter-code-source/`, and writes `starter-code.json` describing them. Labs are skipped, since students don't submit them. Both are git-ignored, so they stay on your machine. Run it again any
+time to pull new changes, then reload the extension.
+
+> [!WARNING]
+> This step needs access to that private repo. If you don't have it, the script stops with an "unauthorized" /
+> "repository not found" error and leaves nothing behind. That's fine: the extension works without it, it just
+> won't check starter code. See [What if the starter-code script says unauthorized?](#what-if-the-starter-code-script-says-unauthorized)
+
+With it set up, recordings are also run with `--starter-code`, so a recording that doesn't begin with the assignment's
+starter code is flagged, and pasting the starter code isn't counted as an unapproved paste (the same checks the
+autograder does). See [How does it know which starter code to use?](#how-does-it-know-which-starter-code-to-use)
+
+<br>
+
 ## Testing
 
 ```
 RECAN=/path/to/recan node test/parity.mjs <folder of .gz recordings>
 ```
 
-Runs each recording two ways, through the extension's Pyodide pipeline and through the real
-`recan view --no-open ... --exclude .html` command-line tool, and checks the two HTML pages are
-**identical**. `RECAN` is your installed `recan` command (it needs recan's Python dependencies).
-Run this after every upstream update. `python3 test/gen_synthetic.py <folder>` writes extra
-edge-case recordings.
+Runs each recording two ways, through the extension's Pyodide pipeline and through the real recan command-line tool,
+and checks the output is **identical** for both things the extension uses: the player page
+(`recan view --no-open ... --exclude .html`) and the analysis behind the red flag
+(`recan summary --json ... --exclude .html`). `RECAN` is your installed `recan` command (it needs recan's Python
+dependencies). To include starter code, also set `STARTER_DIR=<folder of the assignment's starter .py files>`.
+Run this after every upstream update. `python3 test/gen_synthetic.py <folder>` writes extra edge-case recordings.
 
 > [!WARNING]
 > Keep real recordings out of this repo; they're student work (`*.gz` is git-ignored).
@@ -77,13 +112,20 @@ edge-case recordings.
 ## Layout
 
 ```
-manifest.json        extension definition (permissions: Gradescope + its S3 recording storage only)
+manifest.json        extension definition (Gradescope + its S3 recording storage, plus storage and offscreen)
 icons/               blue "R" icon (icon.svg is the source; the PNGs are rendered from it)
-src/                 content.js (buttons), background.js, viewer.*, sandbox.*, runner.js
+src/                 content.js + content.css   the buttons, red flag and "?" popover on Gradescope
+                     background.js              routes messages, remembers your starter-code choices
+                     offscreen.*                the hidden page that keeps Python + recan loaded
+                     runner.js                  runs recan's own command line inside Python
+                     flags.js                   turns recan's analysis into the red-flag checks
+                     starter.js                 optional starter-code lookup and matching by recording name
+                     viewer.*, sandbox.*        the tab that shows the recan player
 shims/               pydivsufsort.py stand-in
-scripts/             setup and its three steps
+scripts/             setup.mjs and its steps; fetch-starter-code.mjs (optional)
 test/                parity.mjs, gen_synthetic.py
 vendor/  upstream/  recan-files.json   downloaded or generated by setup (git-ignored)
+starter-code-source/  starter-code.json   from the optional starter-code script (git-ignored)
 ```
 
 <br>
@@ -102,18 +144,86 @@ vendor/  upstream/  recan-files.json   downloaded or generated by setup (git-ign
 
 ---
 
+### When does a Run Recan button turn red?
+
+When the recording has any of these (each recording is checked on its own):
+
+- **Under 5 minutes of non-idle time.** Non-idle time is the recording's total length minus its idle time, using
+  recan's own definition: time with no activity for over 5 seconds, plus time the editor wasn't focused. This is the same
+  idle time the player skips with its "Skip idle" option.
+- **Any unapproved pastes.** Large insertions that aren't an IDE action, text copied from earlier in the student's
+  own file, or approved starter code.
+- **A starter-code mismatch.** The recording doesn't begin with the assignment's starter code. This is only checked if
+  you set up [the optional starter-code step](#optional-starter-code-checks).
+
+Everything is worked out by recan itself (`recan summary --json`); the extension only applies the 5 minute rule and
+counts the results. The 5 minutes is `MIN_ACTIVE_SECONDS` in `src/flags.js` (and `src/content.js`, which can't share
+modules with it).
+
+---
+
+### What does the ? button show?
+
+It appears next to every recording's **Run recan** button once it has been analyzed, so you can look at the details
+even when nothing is flagged. It's red next to a red button (and explains why), blue otherwise, and gray if the
+recording couldn't be analyzed (it then shows the error). It shows:
+
+- **Time:** non-idle time out of total time, and the idle time.
+- **Unapproved pastes:** how many, and how many characters in total.
+- **Starter code** (only if the optional step is set up): whether the recording matches, doesn't match, or wasn't
+  checked.
+
+When the optional step is set up it also has a **picker** for which assignment's starter code to use.
+
+---
+
+### How does it know which starter code to use?
+
+Only if you ran the optional script. It uses the recording's file name: `color_bars.recording.jsonl.gz` goes with
+the starter file `color_bars.py`. Nothing is read from Gradescope's assignment title.
+
+1. **Matching the names.** For each assignment's starter folder it counts how many of the page's recordings have a
+   starter file with the same name, and the folder with the most wins. A submission with all of an assignment's files
+   picks it out reliably. Of the 113 starter file names (labs aside), 104 appear in only one assignment.
+2. **When names overlap.** A few names are shared (for example `invert` is in both `homework2a` and `project2`, and the
+   homework 3 assignments reuse each other's files). If two folders tie, a picker in the **?** popover lists the
+   assignments. Choose one (or "Don't check starter code") and it's remembered for that assignment on this browser.
+
+Recan matches starter files to recordings by file name and treats every starter file's text as approved, so the
+extension gives it **one assignment's** files at a time. The autograder doesn't need any matching: each assignment's
+Docker image already contains just that assignment's starter code.
+
+---
+
+### What if the starter-code script says unauthorized?
+
+It needs access to the private BYU-CS-Course-Ops/CS110-course-content repo. Sign in to GitHub with an account in that
+organization when git asks (on Windows a browser window opens). If you don't have access, skip the script: the
+extension works without it and just doesn't check starter code. Nothing is left behind after a failed run, and if you
+already had a working `starter-code-source/` a failed update never deletes it.
+
+---
+
+### How does the extension check recordings before I click?
+
+When a submission page opens, each recording is downloaded into memory and analyzed by recan. This happens in a hidden
+extension page (`src/offscreen.html`) that stays open and keeps Python and recan loaded. That's why clicking **Run
+Recan** is fast afterwards: the recording and the Python session are already there. It's also why the extension asks for
+the `offscreen` permission and needs Chrome 116 or newer. Results are cached per file, so revisiting a submission is
+instant. Opening a page downloads that submission's recordings (a few hundred KB each) from Gradescope's storage, the same
+files the page already links to.
+
+---
+
 ### What happens when I click Run Recan?
 
-1. The page script (`src/content.js`) reads the list of files that Gradescope embeds in the
-   submission page, finds the recordings, and puts a button next to each file name.
-2. The button asks the background script (`src/background.js`) to open a viewer tab.
-3. The viewer tab (`src/viewer.js`) does two things at once: it downloads the recording
-   from Gradescope's storage link into memory, and it starts Pyodide and loads recan's
-   Python files (the ones in `recan-files.json`) into it.
-4. It calls recan's own command-line entry point with the arguments
-   `view --no-open <recording> --exclude .html` (`src/runner.js`). recan analyzes the
-   recording and writes its player page, as it would on your laptop, except into
-   Pyodide's in-memory file system.
+1. The page script (`src/content.js`) has already put the button next to each recording and colored it from the analysis.
+2. The click asks the background script (`src/background.js`) to open a viewer tab.
+3. The viewer tab (`src/viewer.js`) asks the hidden engine page (`src/offscreen.js`) to start Python and fetch the
+   recording. Usually both are already done.
+4. The engine calls recan's own command-line entry point, as if you had typed
+   `recan view --no-open <recording> [--starter-code <starter files>] --exclude .html` (`src/runner.js`). recan writes
+   its player page into Pyodide's in-memory file system.
 5. The page is shown in a sandboxed frame (`src/sandbox.html`).
 
 ---
@@ -122,7 +232,8 @@ vendor/  upstream/  recan-files.json   downloaded or generated by setup (git-ign
 
 > [!NOTE]
 > No. The recording goes from Gradescope's storage straight into your browser's memory, is processed there, and is
-> gone when you close the tab. Nothing is written to disk and nothing is sent to any other server.
+> gone when you close the browser or the extension reloads. Nothing is written to disk and nothing is sent to any other
+> server. The only thing stored (in this browser's extension storage) is which starter folder you picked for an assignment.
 
 ---
 
@@ -180,10 +291,12 @@ lives in one place, `TA_OPTIONS` in `src/runner.js`.
 
 ---
 
-### Why does the first click take a moment?
+### Why does the first page take a moment?
 
-Starting Pyodide takes about a second and running recan takes a fraction of a second more. The download happens at the
-same time. The viewer logs `[webrecan] …: N ms` timings to its DevTools console if you want to see where time goes.
+Starting Pyodide takes about a second and running recan takes a fraction of a second per recording. That happens once,
+when you first open a submission page, and the buttons turn red as each recording finishes. After that the Python session
+stays loaded, so clicking is quick. The viewer logs `[webrecan] …: N ms` timings to its DevTools console if you want to
+see where time goes.
 
 ---
 
@@ -191,4 +304,6 @@ same time. The viewer logs `[webrecan] …: N ms` timings to its DevTools consol
 
 Gradescope stores uploaded files on S3 and gives the page a temporary download link. The extension needs permission to
 fetch from that one storage address (`production-gradescope-uploads.s3-us-west-2.amazonaws.com`), in addition to
-`www.gradescope.com`, which is where the buttons appear. It has no other permissions.
+`www.gradescope.com`, which is where the buttons appear. It also uses two Chrome permissions: `storage`, to remember
+your starter-code choice for each assignment, and `offscreen`, for the hidden page that keeps Python loaded. It has no
+other permissions.

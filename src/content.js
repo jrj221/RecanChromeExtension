@@ -1,77 +1,141 @@
 // Adds a "Run recan" button next to each .gz recording in the Gradescope file list.
 //
+// When the page opens, each recording is also analyzed in the background (by recan,
+// see offscreen.js). The button turns red when the recording looks worth a closer
+// look, and a "?" button beside every recording shows the details (and why, if flagged).
+//
 // Gradescope draws the file list client-side, so rather than depend on its markup
 // we find where each recording's file name appears on the page and put the
 // button right after it. Anything we cannot place falls back to a small panel.
 
 const GZ = /\.gz(\?|$)/i;
 const MARK = "data-webrecan";
+const MIN_ACTIVE_SECONDS = 5 * 60; // keep in sync with flags.js (content scripts can't import modules)
 
 // Easter egg: this fraction of clicks goes somewhere else instead.
 const EASTER_EGG_ODDS = 0.01;
 const EASTER_EGG_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
 
-/** Recordings listed in the SubmissionGrader props found in `root` (a Document). */
-function parseRecordings(root) {
+// ---- reading the page ----
+
+/** { recordings } from the SubmissionGrader props found in `root` (a Document). */
+function parsePage(root) {
   // The submission page embeds its files (with presigned S3 URLs) as React props.
   const el = root.querySelector('[data-react-class="SubmissionGrader"]');
-  if (!el) return [];
+  if (!el) return { recordings: [] };
   let props;
   try {
     props = JSON.parse(el.getAttribute("data-react-props"));
   } catch {
-    return [];
+    return { recordings: [] };
   }
-  return (props.files || [])
-    .filter((f) => GZ.test(f.path || "") && (f.url || f.file?.url))
-    // Every student's recording has the same name, so identify files by id, not name.
-    .map((f) => ({ id: String(f.id ?? f.uuid ?? f.url ?? f.file.url), url: f.url || f.file.url, name: f.path }));
+  return {
+    recordings: (props.files || [])
+      .filter((f) => GZ.test(f.path || "") && (f.url || f.file?.url))
+      // Every student's recording has the same name, so identify files by id, not name.
+      .map((f) => ({ id: String(f.id ?? f.uuid ?? f.url ?? f.file.url), url: f.url || f.file.url, name: f.path })),
+  };
 }
 
 // Gradescope can move between submissions (Next student, etc.) without reloading the
 // page. The props in the DOM then still belong to the submission we first loaded, so
 // for any other URL we fetch that page and read its props instead.
 const loadedPath = location.pathname;
-const recordingsByPath = new Map(); // pathname -> recordings, for pages other than loadedPath
+const pagesByPath = new Map(); // pathname -> { recordings }, for pages other than loadedPath
 
-function currentRecordings() {
+function currentPage() {
   const path = location.pathname;
-  if (path === loadedPath) return parseRecordings(document);
-  if (!recordingsByPath.has(path)) {
-    recordingsByPath.set(path, []); // until the fetch finishes (or if it fails)
-    fetch(location.pathname + location.search, { credentials: "include" })
-      .then((res) => (res.ok ? res.text() : Promise.reject(new Error(`HTTP ${res.status}`))))
-      .then((html) => {
-        recordingsByPath.set(path, parseRecordings(new DOMParser().parseFromString(html, "text/html")));
-        render();
-      })
-      .catch((e) => console.warn("[webrecan] could not load recordings for", path, e));
+  const assignmentId = path.match(/\/assignments\/(\d+)/)?.[1] ?? "";
+  let parsed;
+  if (path === loadedPath) parsed = parsePage(document);
+  else {
+    if (!pagesByPath.has(path)) {
+      pagesByPath.set(path, { recordings: [] }); // until the fetch finishes (or if it fails)
+      fetch(location.pathname + location.search, { credentials: "include" })
+        .then((res) => (res.ok ? res.text() : Promise.reject(new Error(`HTTP ${res.status}`))))
+        .then((html) => {
+          pagesByPath.set(path, parsePage(new DOMParser().parseFromString(html, "text/html")));
+          render();
+        })
+        .catch((e) => console.warn("[webrecan] could not load recordings for", path, e));
+    }
+    parsed = pagesByPath.get(path);
   }
-  return recordingsByPath.get(path);
+  // The recording names tell us which assignment's starter code to use (see starter.js).
+  return { ...parsed, assignmentId, recordingNames: parsed.recordings.map((r) => r.name) };
 }
 
-async function run(rec, button) {
+// ---- talking to the extension ----
+
+let page = { recordings: [], assignmentId: "", recordingNames: [] }; // the page last rendered
+
+const analyses = new Map(); // recording id -> { status: "pending" | "done" | "error", evaluation, starter, error }
+const starterInfos = new Map(); // assignment id + recording names -> { enabled, folderId, source, folders } | "pending"
+const starterKey = () => `${page.assignmentId}|${page.recordingNames.join(",")}`;
+
+const send = (message) =>
+  chrome.runtime.sendMessage(message).then((res) => {
+    if (!res?.ok) throw new Error(res?.error || "no response from the extension");
+    return res;
+  });
+
+function requestAnalysis(rec) {
+  if (analyses.has(rec.id)) return;
+  analyses.set(rec.id, { status: "pending" });
+  send({ type: "analyze", url: rec.url, name: rec.name, fileId: rec.id, assignmentId: page.assignmentId, recordingNames: page.recordingNames })
+    .then((res) => {
+      if (!res.evaluation) throw new Error("the extension returned no analysis");
+      analyses.set(rec.id, { status: "done", evaluation: res.evaluation, starter: res.starter });
+    })
+    .catch((e) => analyses.set(rec.id, { status: "error", error: e.message }))
+    .finally(paintAll);
+}
+
+function requestStarterInfo() {
+  const key = starterKey();
+  if (starterInfos.has(key)) return;
+  starterInfos.set(key, "pending");
+  send({ type: "starter-info", assignmentId: page.assignmentId, recordingNames: page.recordingNames })
+    .then((res) => starterInfos.set(key, res.starter))
+    .catch(() => starterInfos.set(key, { enabled: false }))
+    .finally(paintAll);
+}
+
+async function chooseStarterFolder(folderId) {
+  await send({ type: "set-starter-folder", assignmentId: page.assignmentId, recordingNames: page.recordingNames, folderId: folderId === "none" ? null : folderId });
+  analyses.clear();
+  starterInfos.clear();
+  render();
+}
+
+// ---- the buttons ----
+
+// Everything this script puts on the page. If the page copies its own HTML (page caches,
+// innerHTML round trips), the copies of our elements come back with no behavior attached, so
+// anything not in this set is stale and gets removed and rebuilt.
+const created = new WeakSet();
+
+function openRecording(rec, button) {
   button.disabled = true;
-  button.textContent = "Loading…";
-  try {
-    const res = await chrome.runtime.sendMessage({ type: "open-recording", url: rec.url, name: rec.name });
-    if (!res?.ok) throw new Error(res?.error || "no response");
-    button.textContent = "Run recan";
-  } catch (e) {
-    button.textContent = "Failed: " + e.message;
-  } finally {
-    button.disabled = false;
-  }
+  button.textContent = "Opening…";
+  send({ type: "open-recording", url: rec.url, name: rec.name, assignmentId: page.assignmentId, recordingNames: page.recordingNames })
+    .then(() => (button.textContent = "Run recan"))
+    .catch((e) => (button.textContent = "Failed: " + e.message))
+    .finally(() => (button.disabled = false));
 }
 
-function makeButton(rec) {
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "webrecan-btn";
-  btn.setAttribute(MARK, rec.id);
-  btn.recording = rec; // updated in place if the page reuses this button for another student
-  btn.textContent = "Run recan";
-  btn.addEventListener("click", (event) => {
+function makeControl(rec) {
+  const ctl = document.createElement("span");
+  created.add(ctl);
+  ctl.className = "webrecan-ctl";
+  ctl.setAttribute(MARK, rec.id);
+  ctl.recording = rec;
+
+  const run = document.createElement("button");
+  run.type = "button";
+  run.className = "webrecan-btn";
+  run.textContent = "Run recan";
+  run.addEventListener("click", (event) => {
     // The name often sits inside a link or tab; don't also trigger that.
     event.preventDefault();
     event.stopPropagation();
@@ -79,10 +143,268 @@ function makeButton(rec) {
       window.open(EASTER_EGG_URL, "_blank", "noopener");
       return;
     }
-    run(btn.recording, btn);
+    openRecording(ctl.recording, run);
   });
-  return btn;
+
+  const info = document.createElement("button");
+  info.type = "button";
+  info.className = "webrecan-info";
+  info.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    togglePopover(ctl);
+  });
+
+  ctl.append(run, info);
+  return ctl;
 }
+
+/** How should this control look? The ? button is always there; its color says what was found. */
+function stateOf(rec) {
+  const entry = analyses.get(rec.id);
+  if (entry?.status === "error") return { flagged: false, tone: "error" };
+  if (entry?.status === "done" && entry.evaluation.flagged) return { flagged: true, tone: "flag" };
+  return { flagged: false, tone: "" };
+}
+
+function paint(ctl) {
+  if (!ctl.recording) return; // a stale copy; render() removes these
+  const state = stateOf(ctl.recording);
+  const [run, info] = ctl.children;
+  // The wrapper's classes set the color (text + border) of both buttons.
+  ctl.classList.toggle("is-flagged", state.flagged);
+  ctl.classList.toggle("is-error", state.tone === "error");
+  run.title = state.flagged ? "This recording was flagged. Click ? to see why." : "";
+  info.title = state.flagged ? "Why was this flagged?" : "Details";
+  info.setAttribute("aria-label", info.title);
+}
+
+function paintAll() {
+  for (const ctl of document.querySelectorAll(".webrecan-ctl")) paint(ctl);
+  if (!popoverFor) return closePopover();
+
+  // If the page redrew the button the card belongs to, follow it to the new element.
+  if (!popoverFor.isConnected) {
+    const id = popoverFor.getAttribute(MARK);
+    const next = [...document.querySelectorAll(".webrecan-ctl")].find((c) => created.has(c) && c.getAttribute(MARK) === id);
+    if (next) {
+      popoverFor = next;
+      if (pop) pop.dataset.sig = ""; // new anchor: lay the card out again
+    } else {
+      // The new button isn't there yet (render() puts it back in a moment): keep the card as it
+      // is. Only close it if that recording is really gone from this page.
+      if (!page.recordings.some((r) => r.id === id)) closePopover();
+      return;
+    }
+  }
+  fillPopover(popoverFor);
+}
+
+// ---- the explanation popover ----
+
+let pop = null;
+let popoverFor = null;
+
+function closePopover() {
+  pop?.remove();
+  pop = null;
+  popoverFor = null;
+}
+
+function togglePopover(ctl) {
+  if (popoverFor === ctl) return closePopover();
+  closePopover();
+  popoverFor = ctl;
+  pop = document.createElement("div");
+  created.add(pop);
+  pop.className = "webrecan-pop";
+  document.body.appendChild(pop);
+  fillPopover(ctl);
+}
+
+const el = (tag, className, text) => {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+};
+
+function duration(seconds) {
+  const total = Math.round(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return h ? `${h}h ${String(m).padStart(2, "0")}m` : m ? `${m}m ${String(s).padStart(2, "0")}s` : `${s}s`;
+}
+
+function row(flagged, label, text, detail) {
+  const r = el("div", flagged ? "row flag" : "row");
+  r.append(el("strong", "", label), el("span", "", text));
+  if (detail) r.append(el("small", "", detail));
+  return r;
+}
+
+function fillPopover(ctl) {
+  if (!pop || !ctl.recording) return;
+  const rec = ctl.recording;
+  const entry = analyses.get(rec.id);
+  const starterInfo = starterInfos.get(starterKey());
+
+  // This runs every time the page changes, which on Gradescope is constantly. Rebuilding the
+  // card would wipe out an open dropdown mid-click, so leave it alone unless something changed.
+  const signature = JSON.stringify([rec.id, entry, starterInfo]);
+  if (pop.dataset.sig === signature) return;
+  pop.dataset.sig = signature;
+  const listWasOpen = !!pop.querySelector(".picker-list:not([hidden])");
+  const listScroll = pop.querySelector(".picker-list")?.scrollTop ?? 0;
+
+  const parts = [el("div", "title", rec.name)];
+
+  if (entry?.status === "error") {
+    parts.push(el("div", "row flag", `Couldn't analyze this recording: ${entry.error}`));
+  } else if (entry?.status === "done") {
+    const e = entry.evaluation;
+    parts.push(
+      row(
+        e.flags.lowActiveTime,
+        "Time",
+        `${duration(e.activeSeconds)} non-idle of ${duration(e.totalSeconds)} total`,
+        e.flags.lowActiveTime
+          ? `Under the ${MIN_ACTIVE_SECONDS / 60} minute minimum. Idle (no activity for 5+ seconds, or the editor not focused): ${duration(e.idleSeconds)}.`
+          : `Idle (no activity for 5+ seconds, or the editor not focused): ${duration(e.idleSeconds)}.`,
+      ),
+      row(
+        e.flags.unapprovedPastes,
+        "Unapproved pastes",
+        e.unapproved.count
+          ? `${e.unapproved.count} paste${e.unapproved.count === 1 ? "" : "s"} · ${e.unapproved.chars.toLocaleString()} characters`
+          : "None",
+      ),
+    );
+    if (starterInfo && starterInfo !== "pending" && starterInfo.enabled) {
+      if (e.starter === true) parts.push(row(false, "Starter code", "Matches"));
+      else if (e.starter === false) parts.push(row(true, "Starter code", "Does not match"));
+      else if (starterInfo.folderId) parts.push(row(false, "Starter code", "Not checked", "This folder does not contain starter code for this recording."));
+      else if (starterInfo.source === "none") parts.push(row(false, "Starter code", "Not checked", "Starter code checking is turned off for this assignment."));
+      else parts.push(row(false, "Starter code", "Not checked", "Choose the assignment below to check it."));
+    }
+  } else {
+    parts.push(el("div", "row", "Analyzing…"));
+  }
+
+  if (starterInfo && starterInfo !== "pending" && starterInfo.enabled) parts.push(starterPicker(starterInfo));
+
+  pop.replaceChildren(...parts);
+  positionPopover(ctl);
+
+  if (listWasOpen) {
+    // The content changed while the dropdown was open: keep it open, where it was.
+    const list = pop.querySelector(".picker-list");
+    if (list) {
+      list.hidden = false;
+      pop.querySelector(".picker-toggle").setAttribute("aria-expanded", "true");
+      placeList(list);
+      list.scrollTop = listScroll;
+    }
+  }
+}
+
+/**
+ * A dropdown that shows about ten assignments and scrolls for the rest. (A native <select>
+ * can't limit how tall its list is, so this is a button plus a scrolling list.)
+ */
+function starterPicker(info) {
+  const wrap = el("div", "picker");
+  wrap.append(el("label", "", "Assignment for starter code"));
+
+  const options = [{ value: "none", text: "Don't check starter code" }, ...info.folders.map((f) => ({ value: f.id, text: f.label }))];
+  const current = info.source === "none" ? "none" : info.folderId || "";
+  const toggle = el("button", "picker-toggle", options.find((o) => o.value === current)?.text ?? "Choose…");
+  toggle.type = "button";
+  toggle.setAttribute("aria-haspopup", "listbox");
+  toggle.setAttribute("aria-expanded", "false"); // the CSS arrow points up while this is "true"
+
+  const list = el("ul", "picker-list");
+  list.setAttribute("role", "listbox");
+  list.hidden = true;
+  for (const option of options) {
+    const item = el("li", option.value === current ? "selected" : "", option.text);
+    item.setAttribute("role", "option");
+    item.setAttribute("aria-selected", String(option.value === current));
+    item.addEventListener("click", () => {
+      closeList();
+      if (option.value !== current) chooseStarterFolder(option.value);
+    });
+    list.append(item);
+  }
+
+  toggle.addEventListener("click", () => {
+    if (!list.hidden) return closeList();
+    list.hidden = false;
+    toggle.setAttribute("aria-expanded", "true");
+    placeList(list);
+    list.querySelector(".selected")?.scrollIntoView({ block: "center" }); // show the neighbors too
+  });
+  wrap.append(toggle, list);
+  return wrap;
+}
+
+/** Close the dropdown card (if open) and point its arrow back down. */
+function closeList() {
+  const list = pop?.querySelector(".picker-list");
+  if (list) list.hidden = true;
+  pop?.querySelector(".picker-toggle")?.setAttribute("aria-expanded", "false");
+}
+
+const LIST_WIDTH = 240;
+const MIN_LIST_WIDTH = 160;
+const GAP = 8;
+let popSide = "right"; // which side of the "?" button the cards open on
+
+/**
+ * The info card opens beside the "?" button (never over it), level with it, on whichever side
+ * has room for the card plus the dropdown card that can open next to it.
+ */
+function positionPopover(ctl) {
+  const anchor = ctl.querySelector(".webrecan-info").getBoundingClientRect();
+  const width = pop.offsetWidth;
+  const need = width + GAP + LIST_WIDTH + GAP;
+  const roomRight = window.innerWidth - anchor.right - GAP;
+  const roomLeft = anchor.left - GAP;
+  popSide = roomRight >= need ? "right" : roomLeft >= need ? "left" : roomRight >= roomLeft ? "right" : "left";
+  const left = popSide === "right" ? anchor.right + GAP : anchor.left - GAP - width;
+  pop.style.left = `${Math.max(GAP, Math.min(left, window.innerWidth - width - GAP))}px`;
+  // Level with the button, pulled up only if it would run off the bottom of the screen. The
+  // card is beside the button, so it never covers it, wherever the button is on the page.
+  pop.style.top = `${Math.max(GAP, Math.min(anchor.top, window.innerHeight - pop.offsetHeight - GAP))}px`;
+}
+
+/**
+ * The dropdown card: the same top and height as the info card, on its far side. It is up to
+ * LIST_WIDTH wide but narrows to fit the room there is (down to MIN_LIST_WIDTH).
+ */
+function placeList(list) {
+  const box = pop.getBoundingClientRect();
+  const room = popSide === "right" ? window.innerWidth - box.right - 2 * GAP : box.left - 2 * GAP;
+  const width = Math.max(MIN_LIST_WIDTH, Math.min(LIST_WIDTH, room));
+  const left = popSide === "right" ? box.right + GAP : box.left - GAP - width;
+  list.style.width = `${width}px`;
+  list.style.left = `${Math.max(GAP, Math.min(left, window.innerWidth - width - GAP))}px`;
+  list.style.top = `${box.top}px`;
+  list.style.height = `${box.height}px`;
+}
+
+document.addEventListener(
+  "click",
+  (event) => {
+    if (pop?.querySelector(".picker-list:not([hidden])") && !event.target.closest?.(".picker-list, .picker-toggle")) closeList();
+    if (pop && !event.target.closest?.(".webrecan-pop, .webrecan-info")) closePopover();
+  },
+  true,
+);
+document.addEventListener("keydown", (event) => event.key === "Escape" && closePopover());
+
+// ---- placing the buttons ----
 
 /** Elements whose own text is exactly this file name (full path or basename). */
 function findNameElements(rec) {
@@ -92,20 +414,20 @@ function findNameElements(rec) {
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const parent = node.parentElement;
     if (!parent || !names.has(node.nodeValue.trim())) continue;
-    if (parent.closest(`[${MARK}], #webrecan-panel, script, style, textarea`)) continue;
+    if (parent.closest(`[${MARK}], #webrecan-panel, .webrecan-pop, script, style, textarea`)) continue;
     found.push(parent);
   }
   return found;
 }
 
-/** Make sure the button after `anchor` is for `rec`, reusing or replacing a stale one. */
-function ensureButton(anchor, rec) {
+/** Make sure the control after `anchor` is for `rec`, replacing a stale one. */
+function ensureControl(anchor, rec) {
   const next = anchor.nextElementSibling;
-  if (next?.classList.contains("webrecan-btn")) {
+  if (next?.classList.contains("webrecan-ctl")) {
     if (next.getAttribute(MARK) === rec.id) return;
     next.remove(); // left over from another submission
   }
-  anchor.insertAdjacentElement("afterend", makeButton(rec));
+  anchor.insertAdjacentElement("afterend", makeControl(rec));
 }
 
 let panel;
@@ -117,6 +439,7 @@ function renderFallback(unplaced) {
   }
   if (!panel) {
     panel = document.createElement("div");
+    created.add(panel);
     panel.id = "webrecan-panel";
     document.body.appendChild(panel);
   }
@@ -131,20 +454,37 @@ function renderFallback(unplaced) {
     const row = document.createElement("div");
     const label = document.createElement("span");
     label.textContent = rec.name;
-    row.append(label, makeButton(rec));
+    row.append(label, makeControl(rec));
     panel.appendChild(row);
   }
 }
 
-function render() {
-  const recordings = currentRecordings();
+// If a recording's file name can't be found on the page, we only fall back to the corner panel
+// when NONE of them can (so the page isn't laid out as we expect), and only after giving the page
+// a moment to draw its file list. A recording that is in the page data but not in the visible
+// file list (e.g. left over from another assignment) is simply skipped.
+const FALLBACK_AFTER_MS = 3000;
+let seenPath = "";
+let seenAt = Date.now();
 
-  // Drop buttons for files that are no longer on this submission.
+function render() {
+  // Remove lifeless copies of our elements (see `created`); live ones are re-added below.
+  for (const node of document.querySelectorAll(".webrecan-ctl, .webrecan-pop, #webrecan-panel")) {
+    if (!created.has(node)) node.remove();
+  }
+  page = currentPage();
+  const recordings = page.recordings;
+  if (location.pathname !== seenPath) [seenPath, seenAt] = [location.pathname, Date.now()];
+
+  // Drop controls for files that are no longer on this submission.
   const current = new Set(recordings.map((r) => r.id));
-  for (const btn of document.querySelectorAll(".webrecan-btn")) {
-    if (!current.has(btn.getAttribute(MARK))) btn.remove();
+  for (const ctl of document.querySelectorAll(".webrecan-ctl")) {
+    if (!current.has(ctl.getAttribute(MARK))) ctl.remove();
   }
 
+  if (recordings.length) requestStarterInfo();
+
+  const placed = [];
   const unplaced = [];
   for (const rec of recordings) {
     const anchors = findNameElements(rec);
@@ -152,18 +492,32 @@ function render() {
       unplaced.push(rec);
       continue;
     }
-    for (const el of anchors) {
+    placed.push(rec);
+    for (const node of anchors) {
       // Insert after the enclosing link/tab so a click doesn't nest inside it.
-      const anchor = el.closest("a, button, [role=tab]") || el;
-      ensureButton(anchor, rec);
+      ensureControl(node.closest("a, button, [role=tab]") || node, rec);
     }
   }
-  renderFallback(unplaced);
+
+  let fallback = [];
+  if (!placed.length && unplaced.length) {
+    if (Date.now() - seenAt >= FALLBACK_AFTER_MS) fallback = unplaced;
+    else setTimeout(render, FALLBACK_AFTER_MS - (Date.now() - seenAt) + 50); // check again once the page has had time
+  }
+
+  // Only analyze recordings that are shown (inline, or in the fallback panel).
+  for (const rec of [...placed, ...fallback]) requestAnalysis(rec);
+  renderFallback(fallback);
+  paintAll();
 }
 
-// React redraws the list, which can drop our buttons, so re-check after changes.
+// React redraws the list, which can drop our buttons, so re-check after changes
+// (ignoring changes we made ourselves).
+const ours = ".webrecan-ctl, .webrecan-pop, #webrecan-panel";
 let timer;
-new MutationObserver(() => {
+new MutationObserver((mutations) => {
+  const foreign = mutations.some((m) => !(m.target.nodeType === 1 ? m.target : m.target.parentElement)?.closest(ours));
+  if (!foreign) return;
   clearTimeout(timer);
   timer = setTimeout(render, 150);
 }).observe(document.body, { childList: true, subtree: true, characterData: true });

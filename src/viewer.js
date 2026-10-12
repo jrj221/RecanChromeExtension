@@ -1,7 +1,6 @@
-// Fetch the recording, run upstream recan on it in Pyodide, show the page it writes.
-import { loadPyodide } from "../vendor/pyodide/pyodide.mjs";
-import { TA_OPTIONS, generateHtml, mountRecan } from "./runner.js";
-
+// Viewer tab: asks the recan engine for the player page and shows it. The engine
+// (offscreen.js) does the download and runs upstream recan; this page only drives the
+// loading screen and displays the result.
 const loading = document.getElementById("loading");
 const frame = document.getElementById("player");
 const $ = (id) => document.getElementById(id);
@@ -9,22 +8,10 @@ const $ = (id) => document.getElementById(id);
 /** state: "pending" | "active" | "done" | "error" */
 const step = (id, state) => ($(`step-${id}`).dataset.state = state);
 
-const readBytes = async (path) => {
-  const res = await fetch(chrome.runtime.getURL(path));
-  if (!res.ok) throw new Error(`${path}: HTTP ${res.status} (run scripts/setup.mjs?)`);
-  return new Uint8Array(await res.arrayBuffer());
-};
-
-async function download(url) {
-  // Presigned URL: the signature is in the query string, so no cookies.
-  let res;
-  try {
-    res = await fetch(url, { credentials: "omit" });
-  } catch (e) {
-    throw new Error(`network request failed (${e.message})`);
-  }
-  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-  return new Uint8Array(await res.arrayBuffer());
+async function ask(message) {
+  const res = await chrome.runtime.sendMessage(message);
+  if (!res?.ok) throw new Error(res?.error || "no response from the extension");
+  return res;
 }
 
 // The generated page has inline scripts, which extension pages forbid, so it is
@@ -37,29 +24,22 @@ const lap = (label) => console.info(`[webrecan] ${label}: ${Math.round(performan
 try {
   const params = new URLSearchParams(location.search);
   const name = params.get("name") || "recording.jsonl.gz";
+  const job = { url: params.get("url"), name, assignmentId: params.get("assignmentId"), recordingNames: JSON.parse(params.get("recordingNames") || "[]") };
   document.title = `Recording Playback — ${name}`;
   $("filename").textContent = name;
 
-  // Download and Python start-up are independent, so run them at the same time.
-  const bytesPromise = download(params.get("url")).then((b) => (lap("downloaded"), step("download", "done"), b));
-  bytesPromise.catch(() => step("download", "error"));
-  const pyPromise = (async () => {
-    const py = await loadPyodide({ indexURL: chrome.runtime.getURL("vendor/pyodide/") });
-    lap("pyodide core loaded");
-    await py.loadPackage(["jinja2", "pyyaml"]);
-    await mountRecan(py, readBytes);
-    lap("recan mounted");
-    step("python", "done");
-    return py;
-  })();
-  pyPromise.catch(() => step("python", "error"));
-  const [bytes, py] = await Promise.all([bytesPromise, pyPromise]);
+  // Starting Python and downloading are independent, so do both at once.
+  const downloading = ask({ type: "fetch", url: job.url }).then(() => (lap("downloaded"), step("download", "done")));
+  const starting = ask({ type: "warm" }).then(() => (lap("python ready"), step("python", "done")));
+  downloading.catch(() => step("download", "error"));
+  starting.catch(() => step("python", "error"));
+  await Promise.all([downloading, starting]);
 
   step("recan", "active");
-  await new Promise((r) => requestAnimationFrame(() => setTimeout(r)));  // let the step paint before Python blocks
+  await new Promise((r) => requestAnimationFrame(() => setTimeout(r))); // let the step paint
   let html;
   try {
-    html = generateHtml(py, [{ name, bytes }], TA_OPTIONS);
+    ({ html } = await ask({ type: "render", ...job }));
   } catch (e) {
     step("recan", "error");
     throw e;

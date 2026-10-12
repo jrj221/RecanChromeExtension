@@ -1,9 +1,58 @@
-.webrecan-btn { margin: 0 8px 0 18px; padding: 2px 10px; border: 1px solid #1a73e8; border-radius: 4px;
-  background: #fff; color: #1a73e8; font: 600 12px system-ui, sans-serif; cursor: pointer; vertical-align: middle; }
-.webrecan-btn:hover:not(:disabled) { background: #1a73e8; color: #fff; }
+/* Both buttons are outlined, never filled: the color (blue, red when flagged) is used only for
+   the text/glyph and the border. */
+.webrecan-ctl { --tone: #1a73e8; --tint: #e8f0fe; display: inline-flex; align-items: center; gap: 6px;
+  margin: 0 8px 0 18px; vertical-align: middle; }
+.webrecan-ctl.is-flagged { --tone: #d93025; --tint: #fce8e6; }
+.webrecan-ctl.is-error { --tone: #80868b; --tint: #f1f3f4; }
+
+.webrecan-btn { padding: 2px 10px; border: 1.5px solid var(--tone); border-radius: 4px; background: #fff;
+  color: var(--tone); font: 600 12px system-ui, sans-serif; cursor: pointer; }
+.webrecan-btn:hover:not(:disabled) { background: var(--tint); }
 .webrecan-btn:disabled { opacity: .6; cursor: default; }
+
+/* The "?" glyph is a small image used as a mask, so it takes the text color and is drawn to be
+   exactly centered in the circle (a font's own "?" sits off-center). */
+.webrecan-info { position: relative; box-sizing: border-box; flex: none; width: 18px; height: 18px; padding: 0;
+  border: 1.5px solid var(--tone); border-radius: 50%; background: #fff; cursor: pointer; }
+.webrecan-info::before { content: ""; position: absolute; inset: -1.5px; background-color: var(--tone);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Cpath d='M6.7 6.9c0-1.5 1.1-2.4 2.4-2.4s2.4.9 2.4 2.1c0 1.7-2.4 1.9-2.4 3.7' fill='none' stroke='%23000' stroke-width='1.9' stroke-linecap='round'/%3E%3Ccircle cx='9.1' cy='13.4' r='1.15'/%3E%3C/svg%3E") center / 18px 18px no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Cpath d='M6.7 6.9c0-1.5 1.1-2.4 2.4-2.4s2.4.9 2.4 2.1c0 1.7-2.4 1.9-2.4 3.7' fill='none' stroke='%23000' stroke-width='1.9' stroke-linecap='round'/%3E%3Ccircle cx='9.1' cy='13.4' r='1.15'/%3E%3C/svg%3E") center / 18px 18px no-repeat; }
+.webrecan-info:hover { background: var(--tint); }
+.webrecan-info[hidden] { display: none; }
+
+.webrecan-pop { position: fixed; z-index: 100000; width: 330px; max-width: calc(100vw - 16px); box-sizing: border-box;
+  padding: 12px 14px; background: #fff; color: #202124; border: 1px solid #dadce0; border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .22); font: 13px/1.4 system-ui, sans-serif; text-align: left; }
+.webrecan-pop .title { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #e8eaed;
+  font: 600 12px ui-monospace, Menlo, monospace; overflow-wrap: anywhere; }
+.webrecan-pop .row { margin: 8px 0; padding-left: 10px; border-left: 3px solid #dadce0; }
+.webrecan-pop .row.flag { border-left-color: #d93025; }
+.webrecan-pop .row strong { display: block; font-size: 12px; color: #5f6368; text-transform: uppercase; letter-spacing: .03em; }
+.webrecan-pop .row.flag strong { color: #d93025; }
+.webrecan-pop .row small { display: block; margin-top: 2px; color: #5f6368; font-size: 12px; }
+.webrecan-pop .picker { position: relative; margin-top: 12px; padding-top: 10px; border-top: 1px solid #e8eaed; }
+.webrecan-pop .picker label { display: block; margin-bottom: 4px; font-size: 12px; color: #5f6368; }
+.webrecan-pop .picker-toggle { position: relative; display: block; width: 100%; box-sizing: border-box; padding: 5px 28px 5px 8px;
+  border: 1px solid #dadce0; border-radius: 4px; background: #fff; color: #202124; text-align: left;
+  font: 13px system-ui, sans-serif; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The arrow: points down when closed, up when the list is open. */
+.webrecan-pop .picker-toggle::after { content: ""; position: absolute; right: 12px; top: 50%; width: 6px; height: 6px;
+  border-right: 2px solid #5f6368; border-bottom: 2px solid #5f6368; transform: translateY(-70%) rotate(45deg);
+  transition: transform .15s; }
+.webrecan-pop .picker-toggle[aria-expanded="true"]::after { transform: translateY(-30%) rotate(225deg); }
+.webrecan-pop .picker-toggle:hover { border-color: #9aa0a6; }
+/* Same height as the info card beside it (set in JS); the rows scroll inside it. */
+.webrecan-pop .picker-list { position: fixed; z-index: 100001; box-sizing: border-box; margin: 0; padding: 0;
+  overflow-y: auto; list-style: none; background: #fff; border: 1px solid #dadce0; border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .22); }
+.webrecan-pop .picker-list[hidden] { display: none; }
+.webrecan-pop .picker-list li { box-sizing: border-box; height: 28px; padding: 0 8px; line-height: 28px; cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.webrecan-pop .picker-list li:hover { background: #f1f3f4; }
+.webrecan-pop .picker-list li.selected { background: #e8f0fe; color: #1a56c4; font-weight: 600; }
+
 #webrecan-panel { position: fixed; right: 16px; bottom: 16px; z-index: 99999; max-width: 340px;
   background: #fff; color: #222; border: 1px solid #ccc; border-radius: 8px; padding: 10px 12px;
   box-shadow: 0 2px 8px rgba(0,0,0,.2); font: 13px system-ui, sans-serif; }
 #webrecan-panel div { display: flex; gap: 8px; justify-content: space-between; align-items: center; margin-top: 6px; }
 #webrecan-panel span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#webrecan-panel .webrecan-ctl { margin: 0; overflow: visible; }
