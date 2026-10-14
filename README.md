@@ -105,7 +105,7 @@ autograder does). See [How does it know which starter code to use?](#how-does-it
 every Python file listed there and shows one small box at the top of the page:
 
 - **Green**, "✓ Code quality: all checks passed", when every check passes.
-- A red **warning**, "⚠ Code quality: some checks failed", otherwise. Click it to see the four checks, a ✓ or ✗ for each, and
+- A red **warning**, "⚠ Code quality: some checks failed", otherwise. Click it to see the checks, a ✓ or ✗ for each, and
   next to each ✗ the files that failed it. It doesn't say why; for the exact lines and reasons, run the checker from a
   terminal (below).
 
@@ -118,6 +118,7 @@ spread over the files). Nested while loops and long functions fail on the first 
 | **Indentation** | Every block is indented exactly 4 spaces deeper than the line that opens it. Flags extra indents (8 spaces where 4 belong, or an indent after a line that doesn't open a block), too-small indents, and tabs. A statement that wraps onto more lines (a long `print(...)`, a list, a backslash continuation) can indent its continuation lines any way it likes. **Fails only if it happens more than twice across all the files together,** except that a gap of 5 or more blank lines fails it right away. |
 | **2 blank lines between functions** | Two functions that follow each other, or a function followed by the `if __name__ == "__main__":` block, have exactly 2 blank lines between them (not more, not fewer). Comments and decorators directly above a function (or that `if`) count as part of it. Methods inside classes and nested functions aren't checked. **Fails only if it happens more than twice across all the files together.** |
 | **No nested while loops** | No `while` loop contains another `while` loop, at any depth. A function defined inside a loop starts fresh. |
+| **Duplicated code** | Within a file: 3+ identical lines that appear twice; 4+ lines that appear twice and differ only in names, numbers or strings; or two functions whose lines line up at 80% or better once names and values are blanked out (an alignment of their lines). All of these could be one function with parameters. Blank lines, comments and lines like `else:` or `return` don't count. Fails on the first one. The limits are constants at the top of `checker/quality.py`. |
 | **Functions longer than 20 lines** | Every function is **shorter than 20 lines**, so a function of 20 lines or more fails the check. |
 
 **Test files are ignored.** Any file whose name starts with `test` (`test_calculator.py`, `tests.py`, ...) isn't checked, so

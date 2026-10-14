@@ -10,12 +10,59 @@ from checker.quality import MAX_FUNCTION_LINES, check_files, check_source, is_ig
 
 
 def rules(source):
-    return [(i.rule, i.line) for i in check_source(source)]
+    """(rule, line) for every issue except duplication (the filler code in these tests repeats)."""
+    return [(i.rule, i.line) for i in check_source(source) if i.rule != "duplication"]
+
+
+def dups(source):
+    return [i.line for i in check_source(source) if i.rule == "duplication"]
 
 
 def function_with_lines(name, total):
     """A function that is exactly `total` physical lines long, def line included."""
     return f"def {name}():\n" + "    x = 1\n" * (total - 1)
+
+
+class Duplication(unittest.TestCase):
+    def test_three_identical_lines_twice(self):
+        block = "    a = input('a? ')\n    b = input('b? ')\n    print(a, b)\n"
+        source = "def f():\n" + block + "    z = 0\n" + block
+        self.assertEqual(dups(source), [6])
+
+    def test_two_identical_lines_are_fine(self):
+        block = "    a = input('a? ')\n    print(a)\n"
+        self.assertEqual(dups("def f():\n" + block + "    z = 0\n" + block), [])
+
+    def test_same_lines_with_other_names_and_values(self):
+        source = (
+            "def f():\n    t = 0\n    for i in range(5):\n        t += i * 2\n    print('a', t)\n    z = 0\n"
+            "    s = 1\n    for k in range(9):\n        s += k * 3\n    print('b', s)\n"
+        )
+        self.assertEqual(dups(source), [7])
+
+    def test_two_alike_functions_are_one_finding(self):
+        source = (
+            "def a(x):\n    t = 0\n    for i in range(x):\n        t += i * 2\n    print('d', t)\n    return t\n\n\n"
+            "def b(y):\n    c = 1\n    for k in range(y):\n        c += k * 3\n    print('e', c)\n    return c\n"
+        )
+        self.assertEqual(dups(source), [9])
+
+    def test_different_functions_are_fine(self):
+        source = (
+            "def a(x):\n    t = 0\n    for i in range(x):\n        t += i\n    return t\n\n\n"
+            "def b(s):\n    if s == 'q':\n        print('quit')\n    words = s.split()\n    return len(words) > 3 and words[0]\n"
+        )
+        self.assertEqual(dups(source), [])
+
+    def test_comments_and_blank_lines_dont_hide_a_copy(self):
+        block = "    a = input('a? ')\n\n    # next\n    b = input('b? ')\n    print(a, b)\n"
+        self.assertEqual(len(dups("def f():\n" + block + "    z = 0\n" + block)), 1)
+
+    def test_fails_on_the_first_one(self):
+        block = "    a = input('a? ')\n    b = input('b? ')\n    print(a, b)\n"
+        results = check_files([{"name": "a.py", "text": "def f():\n" + block + "    z = 0\n" + block}])
+        row = next(r for r in summarize(results) if r["rule"] == "duplication")
+        self.assertTrue(row["failed"])
 
 
 class Clean(unittest.TestCase):
@@ -248,7 +295,7 @@ class FunctionLength(unittest.TestCase):
         self.assertEqual(rules(function_with_lines("f", 19)), [])
 
     def test_twenty_lines_is_too_long(self):
-        found = check_source(function_with_lines("f", 20))
+        found = [i for i in check_source(function_with_lines("f", 20)) if i.rule != "duplication"]
         self.assertEqual([(i.rule, i.line) for i in found], [("function-length", 1)])
         self.assertIn("20 lines", found[0].message)
 
@@ -348,8 +395,8 @@ class Summary(unittest.TestCase):
 
     def test_everything_passes_when_nothing_was_found(self):
         rows = summarize([result("a.py"), result("b.py")])
-        self.assertEqual([r["failed"] for r in rows], [False] * 4)
-        self.assertEqual([r["rule"] for r in rows], ["indentation", "blank-lines", "nested-while", "function-length"])
+        self.assertEqual([r["failed"] for r in rows], [False] * 5)
+        self.assertEqual([r["rule"] for r in rows], ["indentation", "blank-lines", "nested-while", "function-length", "duplication"])
 
     def test_labels(self):
         labels = {r["rule"]: r["label"] for r in summarize([])}
