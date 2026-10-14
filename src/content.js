@@ -376,9 +376,9 @@ function closeList() {
 
 const LIST_WIDTH = 240;
 const MIN_LIST_WIDTH = 160;
-const SNIPPET_WIDTH = 460;
-const MIN_SNIPPET_WIDTH = 240;
-const SIDE_ROOM = 300; // room to leave beside the info card for the dropdown / pasted-code card
+const SNIPPET_WIDTH = 640;
+const MIN_SNIPPET_WIDTH = 260;
+const SNIPPET_MAX_HEIGHT = 560;
 const GAP = 8;
 let popSide = "right"; // which side of the "?" button the cards open on
 
@@ -389,9 +389,11 @@ let popSide = "right"; // which side of the "?" button the cards open on
 function positionPopover(ctl) {
   const anchor = ctl.querySelector(".webrecan-info").getBoundingClientRect();
   const width = pop.offsetWidth;
-  const need = width + GAP + SIDE_ROOM + GAP;
+  const need = width + GAP + MIN_SNIPPET_WIDTH + GAP;
   const roomRight = window.innerWidth - anchor.right - GAP;
   const roomLeft = anchor.left - GAP;
+  // The right is preferred: the pasted-code viewer opens to the right of this card. Go left only when
+  // the right has no room even for a narrow viewer and the left does.
   popSide = roomRight >= need ? "right" : roomLeft >= need ? "left" : roomRight >= roomLeft ? "right" : "left";
   const left = popSide === "right" ? anchor.right + GAP : anchor.left - GAP - width;
   pop.style.left = `${Math.max(GAP, Math.min(left, window.innerWidth - width - GAP))}px`;
@@ -404,7 +406,7 @@ function positionPopover(ctl) {
  * A card beside the info card (the dropdown, or the pasted-code viewer): the same top and
  * height, on its far side. It is up to maxWidth wide but narrows to fit the room there is.
  */
-function placeSideCard(card, maxWidth, minWidth) {
+function placeSideCard(card, maxWidth, minWidth, tall = false) {
   const box = pop.getBoundingClientRect();
   const room = popSide === "right" ? window.innerWidth - box.right - 2 * GAP : box.left - 2 * GAP;
   const width = Math.max(minWidth, Math.min(maxWidth, room));
@@ -412,7 +414,9 @@ function placeSideCard(card, maxWidth, minWidth) {
   card.style.width = `${width}px`;
   card.style.left = `${Math.max(GAP, Math.min(left, window.innerWidth - width - GAP))}px`;
   card.style.top = `${box.top}px`;
-  card.style.height = `${box.height}px`;
+  // Same height as the info card; a tall card (the file viewer) may grow downward to show more.
+  const height = tall ? Math.max(box.height, Math.min(SNIPPET_MAX_HEIGHT, window.innerHeight - box.top - GAP)) : box.height;
+  card.style.height = `${height}px`;
 }
 
 const placeList = (list) => placeSideCard(list, LIST_WIDTH, MIN_LIST_WIDTH);
@@ -479,17 +483,64 @@ function renderSnippetCard() {
 
   const lines = `${snippet.lines.toLocaleString()} line${snippet.lines === 1 ? "" : "s"}`;
   const when = snippet.atSeconds === null ? "" : ` · ${duration(snippet.atSeconds)} into the recording`;
-  const parts = [head, el("div", "snip-meta", `${snippet.chars.toLocaleString()} characters · ${lines}${when}`), el("pre", "snip-code", snippet.text)];
-  if (snippet.truncated) {
+  const { view, firstHighlight } = codeView(snippet);
+  const parts = [
+    head,
+    el("div", "snip-meta", `${snippet.chars.toLocaleString()} characters pasted · ${lines}${when}`),
+    el("div", "snip-meta", snippet.file ? "The whole file right after the paste, with the pasted code highlighted." : "The rest of the file can't be rebuilt from this recording, so only the pasted code is shown."),
+    view,
+  ];
+  if (snippet.truncated && !snippet.file) {
     parts.push(el("div", "snip-note", `Showing the first ${snippet.text.length.toLocaleString()} of ${snippet.chars.toLocaleString()} characters.`));
   }
 
   const card = el("div", "webrecan-snip");
   card.setAttribute("role", "dialog");
-  card.setAttribute("aria-label", "Pasted code");
+  card.setAttribute("aria-label", "Pasted code in the file");
   card.append(...parts);
   pop.append(card);
-  placeSideCard(card, SNIPPET_WIDTH, MIN_SNIPPET_WIDTH);
+  placeSideCard(card, SNIPPET_WIDTH, MIN_SNIPPET_WIDTH, true);
+  // Bring the highlighted paste into view, with a little of the code above it for context.
+  if (firstHighlight) view.scrollTop = Math.max(0, firstHighlight.offsetTop - view.clientHeight / 4);
+}
+
+/**
+ * The code area: the whole file (or just the pasted text, if the file couldn't be rebuilt) with
+ * line numbers, and the pasted range highlighted. Everything is set as text, never as HTML.
+ */
+function codeView(snippet) {
+  const file = snippet.file;
+  const text = file ? file.text : snippet.text;
+  const [start, end] = file ? [file.start, file.end] : [0, 0]; // nothing to highlight when only the paste is shown
+  const firstLine = file ? file.firstLine : 1;
+
+  const view = el("div", "snip-code");
+  let firstHighlight = null;
+  let lineStart = 0;
+  text.split("\n").forEach((line, i) => {
+    const lineEnd = lineStart + line.length;
+    const row = el("div", "snip-line");
+    const code = el("span", "snip-text");
+    const from = Math.max(start, lineStart);
+    const to = Math.min(end, lineEnd);
+    const covered = (from < to || (!line.length && start <= lineStart && end > lineStart)) && from <= to;
+    if (covered) {
+      if (from <= lineStart && to >= lineEnd) {
+        row.classList.add("hl"); // the whole line is pasted code
+        code.textContent = line;
+      } else {
+        code.append(line.slice(0, from - lineStart), el("mark", "", line.slice(from - lineStart, to - lineStart)), line.slice(to - lineStart));
+        row.classList.add("hl-part");
+      }
+      firstHighlight ??= row;
+    } else {
+      code.textContent = line;
+    }
+    row.append(el("span", "snip-num", String(firstLine + i)), code);
+    view.append(row);
+    lineStart = lineEnd + 1;
+  });
+  return { view, firstHighlight };
 }
 
 document.addEventListener(

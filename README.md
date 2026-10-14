@@ -103,8 +103,8 @@ and checks the output is **identical** for both things the extension uses: the p
 (`recan view --no-open ... --exclude .html`) and the analysis behind the red flag
 (`recan summary --json ... --exclude .html`). `RECAN` is your installed `recan` command (it needs recan's Python
 dependencies). To include starter code, also set `STARTER_DIR=<folder of the assignment's starter .py files>`.
-`node test/flags.mjs [folder of .gz recordings]` checks how recan's analysis becomes the flags and the pasted-code snippets
-(with a folder, it also compares the snippets with recan's real output). Run the parity test after every upstream update. `python3 test/gen_synthetic.py <folder>` writes extra edge-case recordings.
+`node test/flags.mjs [folder of .gz recordings]` checks how recan's analysis becomes the flags and the pasted-code snippets,
+including rebuilding the whole file at a paste (with a folder, it also compares them with recan's real output). Run the parity test after every upstream update. `python3 test/gen_synthetic.py <folder>` writes extra edge-case recordings.
 
 > [!WARNING]
 > Keep real recordings out of this repo; they're student work (`*.gz` is git-ignored).
@@ -182,19 +182,27 @@ When the optional step is set up it also has a **picker** for which assignment's
 
 ### How do I see the pasted code?
 
-Next to **Unapproved pastes** in the **?** card, click **Show**. A second card opens beside it (level with it, the same
-height) with the code that was pasted:
+Next to **Unapproved pastes** in the **?** card, click **Show**. A second card opens to the **right** of it (the **?** card
+itself opens to the right of the **?** button whenever there's room) showing **the whole file as it was at the end of that
+paste**, with line numbers and the pasted code **highlighted**, scrolled so the paste is in view:
 
-- A line under the heading gives its size and when in the recording it happened ("74 characters · 9 lines · 3m 10s into
-  the recording").
+- A line under the heading gives the paste's size and when in the recording it happened ("74 characters pasted · 9 lines ·
+  3m 10s into the recording").
+- The file is rebuilt from the recording's edits (recan's `summary --json` already includes them), so it shows exactly what
+  the student had at that moment. If the IDE re-indented the paste a few milliseconds later, you see the re-indented text,
+  which is also what recan counts as the paste.
 - If the recording has more than one unapproved paste, the heading reads "Paste 2 of 3" and there are **‹ ›** arrows to
-  step through them, in the order they happened. The **Left** and **Right** arrow keys do the same (they are ignored while
-  you're typing in a page field).
-- Very large pastes are cut off: the card shows the first 20,000 characters and says how many there were in all.
+  step through them, in order. The file shown is the file *at that paste*, so an earlier paste appears as plain context and
+  a later one isn't there yet. The **Left** and **Right** arrow keys do the same (ignored while you're typing in a page field).
+- Very large files are cut to a window of 100,000 characters around the paste (with the real line numbers). If a recording
+  doesn't carry enough to rebuild the file, the card says so and shows just the pasted code.
 - **Escape**, or the **✕**, closes the card (a second Escape closes the **?** card). Clicking **Show** again also closes it.
-  Opening the starter-code dropdown closes it too, since they share the space beside the card.
+  Opening the starter-code dropdown closes it too, since they share the space beside the **?** card.
+- If the window is too narrow for the viewer on the right, it narrows to fit; only if the **?** button is at the far right
+  of the window do the cards open on the left instead.
 
-These are the same pastes recan counts as unapproved (`recan summary --json`), not a separate detection.
+The pasted code is always shown as plain text, never run. These are the same pastes recan counts as unapproved
+(`recan summary --json`), not a separate detection.
 
 ---
 

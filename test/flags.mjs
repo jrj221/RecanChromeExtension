@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { MAX_SNIPPET_CHARS, evaluateSession, evaluateSummaryJson } from "../src/flags.js";
+import { MAX_FILE_CHARS, MAX_SNIPPET_CHARS, documentAt, evaluateSession, evaluateSummaryJson } from "../src/flags.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 let checks = 0;
@@ -88,6 +88,136 @@ test("missing fragment or sizes don't crash", () => {
   assert.equal(snippet.chars, 0);
 });
 
+// ---- the whole file at the moment of a paste ----
+
+// entries: 0 initial "xa\nb\n" | 1 types "x" | 2 pastes "P1\nP2\n" before the "b" | 3 deletes the "x"
+const fileSession = (extra = {}) => ({
+  start_time: "2026-10-04T02:00:00.000000Z",
+  end_time: "2026-10-04T03:00:00.000000Z",
+  starts_with_starter_code: null,
+  entries: [
+    { type: "initialSnapshot", document_text: "a\nb\n" },
+    { type: "edit", offset: 0, oldFragment: "", newFragment: "x" },
+    { type: "edit", offset: 3, oldFragment: "", newFragment: "P1\nP2\n" },
+    { type: "edit", offset: 0, oldFragment: "x", newFragment: "" },
+  ],
+  snapshots: [],
+  annotations: [{ ...paste("P1\nP2\n", "2026-10-04T02:10:00.000000Z"), source_entry: 2, entry_start: 2, entry_end: 2 }],
+  ...extra,
+});
+
+test("documentAt replays the edits from the initial snapshot", () => {
+  const s = fileSession();
+  assert.equal(documentAt(s, 0), "a\nb\n");
+  assert.equal(documentAt(s, 1), "xa\nb\n");
+  assert.equal(documentAt(s, 2), "xa\nP1\nP2\nb\n");
+  assert.equal(documentAt(s, 3), "a\nP1\nP2\nb\n");
+});
+
+test("documentAt starts from the latest snapshot when there is one, and gets the same answer", () => {
+  const s = fileSession({ snapshots: [{ after_idx: 1, document_text: "xa\nb\n" }] });
+  for (let i = 0; i <= 3; i++) assert.equal(documentAt(s, i), documentAt(fileSession(), i), `index ${i}`);
+  // a snapshot that is wrong proves it is really used as the starting point
+  const lie = fileSession({ snapshots: [{ after_idx: 1, document_text: "SNAPSHOT" }] });
+  assert.equal(documentAt(lie, 2), "SNAP1\nP2\nPSHOT"); // the paste (offset 3) lands inside the snapshot text
+});
+
+test("the paste comes with the whole file at the end of the paste and where the paste is in it", () => {
+  const { file } = evaluateSession(fileSession()).unapproved.snippets[0];
+  assert.equal(file.text, "xa\nP1\nP2\nb\n"); // right after the paste (the next edit is a separate action)
+  assert.equal(file.text.slice(file.start, file.end), "P1\nP2\n");
+  assert.deepEqual([file.start, file.end, file.firstLine], [3, 9, 1]);
+});
+
+test("an IDE re-indent right after the paste is included, and the highlight is recan's final text", () => {
+  const first = "    p1\n";
+  const s = {
+    start_time: "2026-10-04T02:00:00.000000Z",
+    end_time: "2026-10-04T03:00:00.000000Z",
+    entries: [
+      { type: "initialSnapshot", document_text: "a\nb\n" },
+      { type: "edit", offset: 2, oldFragment: "", newFragment: first + "            p2\n" }, // pasted with 12 spaces on line 2
+      { type: "edit", offset: 2 + first.length, oldFragment: "            p2", newFragment: "    p2" }, // the IDE fixes it
+      { type: "edit", offset: 0, oldFragment: "a", newFragment: "A" }, // a later, separate edit
+    ],
+    snapshots: [],
+    annotations: [{ ...paste(first + "    p2\n", "2026-10-04T02:10:00.000000Z"), source_entry: 1, entry_end: 2 }],
+  };
+  const { file } = evaluateSession(s).unapproved.snippets[0];
+  assert.equal(file.text, "a\n    p1\n    p2\nb\n"); // after the fix-up, before the later edit
+  assert.equal(file.text.slice(file.start, file.end), "    p1\n    p2\n");
+});
+
+test("a re-indent BEFORE the paste in the same burst moves the highlight with it", () => {
+  const s = {
+    start_time: "2026-10-04T02:00:00.000000Z",
+    end_time: "2026-10-04T03:00:00.000000Z",
+    entries: [
+      { type: "initialSnapshot", document_text: "a\nb\n" },
+      { type: "edit", offset: 2, oldFragment: "", newFragment: "NEW1\nNEW2\n" },
+      { type: "edit", offset: 0, oldFragment: "a", newFragment: "ab" }, // a line above grows by one character
+    ],
+    snapshots: [],
+    annotations: [{ ...paste("NEW1\nNEW2\n", "2026-10-04T02:10:00.000000Z"), source_entry: 1, entry_end: 2 }],
+  };
+  const { file } = evaluateSession(s).unapproved.snippets[0];
+  assert.equal(file.text, "ab\nNEW1\nNEW2\nb\n");
+  assert.equal(file.text.slice(file.start, file.end), "NEW1\nNEW2\n");
+});
+
+test("a recording without the edit history falls back to the pasted text alone", () => {
+  const { entries, ...without } = fileSession();
+  assert.equal(evaluateSession(without).unapproved.snippets[0].file, null);
+  assert.equal(evaluateSession(without).unapproved.snippets[0].text, "P1\nP2\n");
+});
+
+test("an edit past the end of the file is still found by its text", () => {
+  const s = fileSession();
+  s.entries[2] = { type: "edit", offset: 999, oldFragment: "", newFragment: "P1\nP2\n" }; // lands at the end of the file
+  const { file } = evaluateSession(s).unapproved.snippets[0];
+  assert.equal(file.text, "xa\nb\nP1\nP2\n");
+  assert.equal(file.text.slice(file.start, file.end), "P1\nP2\n");
+});
+
+test("if recan's pasted text can't be found in the rebuilt file, it doesn't guess", () => {
+  const s = fileSession();
+  s.annotations[0].fragment = "TEXT THAT IS NOWHERE IN THE FILE";
+  const [snippet] = evaluateSession(s).unapproved.snippets;
+  assert.equal(snippet.file, null);
+  assert.equal(snippet.text, "TEXT THAT IS NOWHERE IN THE FILE"); // the viewer still has the pasted text to show
+});
+
+test("the paste annotation pointing at something that isn't an edit gives no file, not a crash", () => {
+  const s = fileSession();
+  s.annotations[0].source_entry = 0; // the initial snapshot
+  assert.equal(evaluateSession(s).unapproved.snippets[0].file, null);
+  s.annotations[0].source_entry = 99; // out of range
+  assert.equal(evaluateSession(s).unapproved.snippets[0].file, null);
+});
+
+test("a very large file is cut to a window around the paste, on a line boundary, with the right line numbers", () => {
+  const line = "x".repeat(99) + "\n";
+  const big = line.repeat(3000); // 300,000 characters
+  const at = 200 * 100; // start of line 201
+  const s = {
+    start_time: "2026-10-04T02:00:00.000000Z",
+    end_time: "2026-10-04T03:00:00.000000Z",
+    entries: [
+      { type: "initialSnapshot", document_text: big },
+      { type: "edit", offset: at, oldFragment: "", newFragment: "PASTED\nCODE\n" },
+    ],
+    snapshots: [],
+    annotations: [{ ...paste("PASTED\nCODE\n", "2026-10-04T02:10:00.000000Z"), source_entry: 1 }],
+  };
+  const { file } = evaluateSession(s).unapproved.snippets[0];
+  assert.ok(file.text.length <= MAX_FILE_CHARS);
+  assert.equal(file.text.slice(file.start, file.end), "PASTED\nCODE\n");
+  assert.ok(file.text.startsWith("x"), "starts at the beginning of a line");
+  const before = documentAt(s, 1).slice(0, at + 0).split("\n").length - 1; // lines before the paste
+  const shownBefore = file.text.slice(0, file.start).split("\n").length - 1;
+  assert.equal(file.firstLine + shownBefore, before + 1, "line numbers still match the real file");
+});
+
 // ---- against recan's real output ----
 const folder = process.argv[2];
 if (folder) {
@@ -109,7 +239,18 @@ if (folder) {
       assert.equal(s.chars, a.char_count, `${name} #${i + 1}: characters`);
       assert.equal(s.lines, a.line_count, `${name} #${i + 1}: lines`);
       assert.ok(s.atSeconds >= 0, `${name} #${i + 1}: has a time`);
+      // the whole file at that moment, with the pasted text exactly where the highlight says
+      assert.ok(s.file, `${name} #${i + 1}: the file could be rebuilt`);
+      if (!s.truncated) assert.equal(s.file.text.slice(s.file.start, s.file.end), s.text, `${name} #${i + 1}: highlight is the pasted text`);
+      assert.ok(s.file.text.length >= s.file.end - s.file.start, `${name} #${i + 1}: file contains the paste`);
     });
+    if (name.startsWith("multi")) {
+      // each later paste is put at the top, so the file grows and still holds the earlier pastes and the starter lines
+      const files = unapproved.snippets.map((s) => s.file.text);
+      assert.ok(files.every((f) => f.endsWith("def solve():\n    pass\n")), "multi: starter code at the end of each file");
+      assert.ok(files[1].includes(unapproved.snippets[0].text) && files[2].includes(unapproved.snippets[1].text), "multi: earlier pastes are in later files");
+      assert.ok(!files[0].includes(unapproved.snippets[1].text), "multi: the file is shown AT that moment, before later pastes");
+    }
     total += raw.length;
     checks++;
     console.log(`ok   ${name}: ${raw.length} unapproved paste(s) match recan's output exactly`);
