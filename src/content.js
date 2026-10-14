@@ -209,6 +209,7 @@ function closePopover() {
   pop?.remove();
   pop = null;
   popoverFor = null;
+  snippetView = null;
 }
 
 function togglePopover(ctl) {
@@ -237,9 +238,20 @@ function duration(seconds) {
   return h ? `${h}h ${String(m).padStart(2, "0")}m` : m ? `${m}m ${String(s).padStart(2, "0")}s` : `${s}s`;
 }
 
-function row(flagged, label, text, detail) {
+function row(flagged, label, text, detail, action) {
   const r = el("div", flagged ? "row flag" : "row");
-  r.append(el("strong", "", label), el("span", "", text));
+  const head = el("div", "row-head");
+  head.append(el("strong", "", label));
+  if (action) {
+    const button = el("button", "webrecan-show", action.label);
+    button.type = "button";
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      action.onClick();
+    });
+    head.append(button);
+  }
+  r.append(head, el("span", "", text));
   if (detail) r.append(el("small", "", detail));
   return r;
 }
@@ -279,6 +291,10 @@ function fillPopover(ctl) {
         e.unapproved.count
           ? `${e.unapproved.count} paste${e.unapproved.count === 1 ? "" : "s"} · ${e.unapproved.chars.toLocaleString()} characters`
           : "None",
+        undefined,
+        e.unapproved.snippets?.length
+          ? { label: "Show", onClick: () => (snippetView?.recId === rec.id ? closeSnippet() : showSnippet(ctl)) }
+          : undefined,
       ),
     );
     if (starterInfo && starterInfo !== "pending" && starterInfo.enabled) {
@@ -307,6 +323,7 @@ function fillPopover(ctl) {
       list.scrollTop = listScroll;
     }
   }
+  renderSnippetCard(); // the viewer is a child of the card, so it was just removed; put it back
 }
 
 /**
@@ -340,6 +357,7 @@ function starterPicker(info) {
 
   toggle.addEventListener("click", () => {
     if (!list.hidden) return closeList();
+    closeSnippet();
     list.hidden = false;
     toggle.setAttribute("aria-expanded", "true");
     placeList(list);
@@ -358,6 +376,9 @@ function closeList() {
 
 const LIST_WIDTH = 240;
 const MIN_LIST_WIDTH = 160;
+const SNIPPET_WIDTH = 460;
+const MIN_SNIPPET_WIDTH = 240;
+const SIDE_ROOM = 300; // room to leave beside the info card for the dropdown / pasted-code card
 const GAP = 8;
 let popSide = "right"; // which side of the "?" button the cards open on
 
@@ -368,7 +389,7 @@ let popSide = "right"; // which side of the "?" button the cards open on
 function positionPopover(ctl) {
   const anchor = ctl.querySelector(".webrecan-info").getBoundingClientRect();
   const width = pop.offsetWidth;
-  const need = width + GAP + LIST_WIDTH + GAP;
+  const need = width + GAP + SIDE_ROOM + GAP;
   const roomRight = window.innerWidth - anchor.right - GAP;
   const roomLeft = anchor.left - GAP;
   popSide = roomRight >= need ? "right" : roomLeft >= need ? "left" : roomRight >= roomLeft ? "right" : "left";
@@ -380,18 +401,95 @@ function positionPopover(ctl) {
 }
 
 /**
- * The dropdown card: the same top and height as the info card, on its far side. It is up to
- * LIST_WIDTH wide but narrows to fit the room there is (down to MIN_LIST_WIDTH).
+ * A card beside the info card (the dropdown, or the pasted-code viewer): the same top and
+ * height, on its far side. It is up to maxWidth wide but narrows to fit the room there is.
  */
-function placeList(list) {
+function placeSideCard(card, maxWidth, minWidth) {
   const box = pop.getBoundingClientRect();
   const room = popSide === "right" ? window.innerWidth - box.right - 2 * GAP : box.left - 2 * GAP;
-  const width = Math.max(MIN_LIST_WIDTH, Math.min(LIST_WIDTH, room));
+  const width = Math.max(minWidth, Math.min(maxWidth, room));
   const left = popSide === "right" ? box.right + GAP : box.left - GAP - width;
-  list.style.width = `${width}px`;
-  list.style.left = `${Math.max(GAP, Math.min(left, window.innerWidth - width - GAP))}px`;
-  list.style.top = `${box.top}px`;
-  list.style.height = `${box.height}px`;
+  card.style.width = `${width}px`;
+  card.style.left = `${Math.max(GAP, Math.min(left, window.innerWidth - width - GAP))}px`;
+  card.style.top = `${box.top}px`;
+  card.style.height = `${box.height}px`;
+}
+
+const placeList = (list) => placeSideCard(list, LIST_WIDTH, MIN_LIST_WIDTH);
+
+// ---- the pasted-code viewer ----
+//
+// "Show" on the unapproved pastes row opens a card beside the info card with the pasted text.
+// With more than one paste there are arrows to step through them (or the Left/Right keys).
+
+let snippetView = null; // { recId, index } while the viewer is open
+
+function showSnippet(ctl) {
+  closeList(); // the dropdown and the viewer share the space beside the card
+  snippetView = { recId: ctl.recording.id, index: 0 };
+  renderSnippetCard();
+}
+
+function closeSnippet() {
+  snippetView = null;
+  pop?.querySelector(".webrecan-snip")?.remove();
+}
+
+function stepSnippet(delta) {
+  if (!snippetView) return;
+  snippetView.index += delta;
+  renderSnippetCard();
+}
+
+function renderSnippetCard() {
+  pop?.querySelector(".webrecan-snip")?.remove();
+  if (!pop || !snippetView) return;
+  const rec = popoverFor?.recording;
+  const snippets = (rec && analyses.get(rec.id)?.evaluation?.unapproved?.snippets) || [];
+  if (!rec || rec.id !== snippetView.recId || !snippets.length) {
+    snippetView = null;
+    return;
+  }
+  const index = (snippetView.index = Math.max(0, Math.min(snippetView.index, snippets.length - 1)));
+  const snippet = snippets[index];
+
+  const button = (text, label, onClick, disabled = false) => {
+    const b = el("button", "snip-btn", text);
+    b.type = "button";
+    b.setAttribute("aria-label", label);
+    b.disabled = disabled;
+    b.addEventListener("click", (event) => {
+      event.preventDefault();
+      onClick();
+    });
+    return b;
+  };
+
+  const head = el("div", "snip-head");
+  head.append(el("strong", "", snippets.length > 1 ? `Paste ${index + 1} of ${snippets.length}` : "Pasted code"));
+  const nav = el("div", "snip-nav");
+  if (snippets.length > 1) {
+    nav.append(
+      button("‹", "Previous paste", () => stepSnippet(-1), index === 0),
+      button("›", "Next paste", () => stepSnippet(1), index === snippets.length - 1),
+    );
+  }
+  nav.append(button("✕", "Close", closeSnippet));
+  head.append(nav);
+
+  const lines = `${snippet.lines.toLocaleString()} line${snippet.lines === 1 ? "" : "s"}`;
+  const when = snippet.atSeconds === null ? "" : ` · ${duration(snippet.atSeconds)} into the recording`;
+  const parts = [head, el("div", "snip-meta", `${snippet.chars.toLocaleString()} characters · ${lines}${when}`), el("pre", "snip-code", snippet.text)];
+  if (snippet.truncated) {
+    parts.push(el("div", "snip-note", `Showing the first ${snippet.text.length.toLocaleString()} of ${snippet.chars.toLocaleString()} characters.`));
+  }
+
+  const card = el("div", "webrecan-snip");
+  card.setAttribute("role", "dialog");
+  card.setAttribute("aria-label", "Pasted code");
+  card.append(...parts);
+  pop.append(card);
+  placeSideCard(card, SNIPPET_WIDTH, MIN_SNIPPET_WIDTH);
 }
 
 document.addEventListener(
@@ -402,7 +500,14 @@ document.addEventListener(
   },
   true,
 );
-document.addEventListener("keydown", (event) => event.key === "Escape" && closePopover());
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") return snippetView ? closeSnippet() : closePopover();
+  const typing = event.target.closest?.("input, textarea, select, [contenteditable]");
+  if (snippetView && !typing && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+    event.preventDefault();
+    stepSnippet(event.key === "ArrowRight" ? 1 : -1);
+  }
+});
 
 // ---- placing the buttons ----
 

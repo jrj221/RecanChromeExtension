@@ -4,6 +4,10 @@
 
 export const MIN_ACTIVE_SECONDS = 5 * 60;
 
+// A pasted snippet can be huge (hundreds of thousands of characters). The viewer shows at most
+// this many characters of each; the real size is still reported.
+export const MAX_SNIPPET_CHARS = 20000;
+
 const IDLE_KINDS = new Set(["idle_gap", "unfocused"]);
 
 export function evaluateSession(session) {
@@ -37,7 +41,22 @@ export function evaluateSession(session) {
   const activeSeconds = Math.max(0, totalSeconds - idleSeconds);
 
   const pastes = (session.annotations || []).filter((a) => a.kind === "unapproved_paste");
-  const unapproved = { count: pastes.length, chars: pastes.reduce((n, a) => n + (a.char_count || 0), 0) };
+  const unapproved = {
+    count: pastes.length,
+    chars: pastes.reduce((n, a) => n + (a.char_count || 0), 0),
+    // The pasted text of each one, in the order they happened (recan sorts annotations by time).
+    snippets: pastes.map((a) => {
+      const text = String(a.fragment ?? "");
+      const at = Date.parse(a.timestamp);
+      return {
+        text: text.slice(0, MAX_SNIPPET_CHARS),
+        truncated: text.length > MAX_SNIPPET_CHARS,
+        chars: a.char_count ?? text.length,
+        lines: a.line_count ?? text.split("\n").length,
+        atSeconds: hasTimes && Number.isFinite(at) ? Math.max(0, (at - startMs) / 1000) : null, // into the recording
+      };
+    }),
+  };
 
   // true = starts with the starter code, false = does not, null = not checked
   // (no starter files given, or none for this document).

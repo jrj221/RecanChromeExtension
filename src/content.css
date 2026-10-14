@@ -28,6 +28,7 @@
 .webrecan-pop .row.flag { border-left-color: #d93025; }
 .webrecan-pop .row strong { display: block; font-size: 12px; color: #5f6368; text-transform: uppercase; letter-spacing: .03em; }
 .webrecan-pop .row.flag strong { color: #d93025; }
+.webrecan-pop .row-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .webrecan-pop .row small { display: block; margin-top: 2px; color: #5f6368; font-size: 12px; }
 .webrecan-pop .picker { position: relative; margin-top: 12px; padding-top: 10px; border-top: 1px solid #e8eaed; }
 .webrecan-pop .picker label { display: block; margin-bottom: 4px; font-size: 12px; color: #5f6368; }
@@ -56,3 +57,23 @@
 #webrecan-panel div { display: flex; gap: 8px; justify-content: space-between; align-items: center; margin-top: 6px; }
 #webrecan-panel span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #webrecan-panel .webrecan-ctl { margin: 0; overflow: visible; }
+
+/* "Show" on the unapproved pastes row, and the card that shows the pasted code beside the info card. */
+.webrecan-pop .webrecan-show { padding: 1px 9px; border: 1.5px solid #d93025; border-radius: 4px; background: #fff; color: #d93025;
+  font: 600 11px system-ui, sans-serif; cursor: pointer; }
+.webrecan-pop .webrecan-show:hover { background: #fce8e6; }
+
+.webrecan-snip { position: fixed; z-index: 100001; box-sizing: border-box; display: flex; flex-direction: column; padding: 12px 14px;
+  background: #fff; color: #202124; border: 1px solid #dadce0; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, .22);
+  font: 13px/1.4 system-ui, sans-serif; text-align: left; }
+.webrecan-snip .snip-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.webrecan-snip .snip-head strong { font-size: 13px; }
+.webrecan-snip .snip-nav { display: flex; gap: 4px; }
+.webrecan-snip .snip-btn { min-width: 26px; height: 24px; padding: 0 6px; border: 1.5px solid #1a73e8; border-radius: 4px; background: #fff;
+  color: #1a73e8; font: 600 15px/1 system-ui, sans-serif; cursor: pointer; }
+.webrecan-snip .snip-btn:hover:not(:disabled) { background: #e8f0fe; }
+.webrecan-snip .snip-btn:disabled { border-color: #dadce0; color: #bdc1c6; cursor: default; }
+.webrecan-snip .snip-meta { margin: 4px 0 8px; color: #5f6368; font-size: 12px; }
+.webrecan-snip .snip-code { flex: 1; min-height: 0; margin: 0; padding: 8px 10px; overflow: auto; background: #f8f9fa; border: 1px solid #e8eaed;
+  border-radius: 6px; font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre; tab-size: 4; }
+.webrecan-snip .snip-note { margin-top: 6px; color: #5f6368; font-size: 12px; }
