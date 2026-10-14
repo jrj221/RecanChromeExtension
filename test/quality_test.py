@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from checker import quality  # noqa: E402
-from checker.quality import MAX_FUNCTION_LINES, check_files, check_source  # noqa: E402
+from checker.quality import MAX_FUNCTION_LINES, check_files, check_source, is_ignored, summarize  # noqa: E402
 
 
 def rules(source):
@@ -75,6 +75,42 @@ class Indentation(unittest.TestCase):
         self.assertEqual(rules(source), [])
 
 
+class WrappedStatements(unittest.TestCase):
+    """A statement that wraps onto more lines may indent its continuation lines any way it likes."""
+
+    def test_wrapped_print_aligned_under_the_opening_parenthesis(self):
+        source = (
+            "def f(a):\n"
+            '    print(f"Once upon a time a student found themselves in a {a} class, "\n'
+            '          f"and the teacher was so boring that they daydreamed.")\n'
+        )
+        self.assertEqual(rules(source), [])
+
+    def test_wrapped_print_with_a_hanging_indent(self):
+        source = 'def f(a):\n    print(\n        f"first part",\n        f"second part",\n    )\n'
+        self.assertEqual(rules(source), [])
+
+    def test_continuation_indented_by_an_odd_amount_or_a_lot_or_too_little(self):
+        for continuation in ("         ", " " * 50, ""):
+            source = f'def f(a):\n    if a:\n        print("one",\n{continuation}"two")\n'
+            self.assertEqual(rules(source), [], f"continuation indented {len(continuation)}")
+
+    def test_backslash_continuation(self):
+        self.assertEqual(rules("def f(a):\n    total = a + \\\n            a + \\\n        a\n    return total\n"), [])
+
+    def test_lists_and_dicts_spread_over_lines(self):
+        source = 'def f():\n    data = {"a": 1,\n              "b": 2,\n        "c": 3}\n    return data\n'
+        self.assertEqual(rules(source), [])
+
+    def test_triple_quoted_string_lines(self):
+        source = 'def f():\n    print("""first\n        second\n            third""")\n'
+        self.assertEqual(rules(source), [])
+
+    def test_a_real_extra_indent_after_a_wrapped_statement_is_still_flagged(self):
+        source = 'def f(a):\n    print("one",\n          "two")\n        a = 1\n'
+        self.assertTrue(any(r == "indentation" for r, _ in rules(source)))
+
+
 class BlankLines(unittest.TestCase):
     def two(self, gap):
         return "def a():\n    pass\n" + "\n" * gap + "def b():\n    pass\n"
@@ -128,6 +164,40 @@ class BlankLines(unittest.TestCase):
     def test_three_functions_each_gap_is_checked(self):
         source = "def a():\n    pass\n\ndef b():\n    pass\n\n\n\ndef c():\n    pass\n"
         self.assertEqual([r for r, _ in rules(source)], ["blank-lines", "blank-lines"])
+
+
+class MainBlockSpacing(unittest.TestCase):
+    def with_main(self, gap, main="if __name__ == '__main__':"):
+        return "def run():\n    pass\n" + "\n" * gap + main + "\n    run()\n"
+
+    def test_two_blank_lines_before_the_main_block_is_fine(self):
+        self.assertEqual(rules(self.with_main(2)), [])
+
+    def test_wrong_number_before_the_main_block(self):
+        for gap, expected in ((0, "0 blank lines"), (1, "1 blank line "), (3, "3 blank lines")):
+            found = check_source(self.with_main(gap))
+            self.assertEqual([i.rule for i in found], ["blank-lines"], gap)
+            self.assertIn(expected, found[0].message)
+            self.assertIn("__main__", found[0].message)
+
+    def test_double_quotes_and_reversed_comparison_are_also_the_main_block(self):
+        self.assertEqual(rules(self.with_main(1, 'if __name__ == "__main__":')), [("blank-lines", 4)])
+        self.assertEqual(rules(self.with_main(1, "if '__main__' == __name__:")), [("blank-lines", 4)])
+
+    def test_a_comment_directly_above_the_main_block_belongs_to_it(self):
+        source = "def run():\n    pass\n\n\n# start here\nif __name__ == '__main__':\n    run()\n"
+        self.assertEqual(rules(source), [])
+
+    def test_other_if_statements_are_not_the_main_block(self):
+        source = "def run():\n    pass\nif x == 1:\n    run()\n"
+        self.assertEqual(rules(source), [])
+
+    def test_only_a_function_directly_before_it_is_checked(self):
+        source = "def run():\n    pass\nx = 1\nif __name__ == '__main__':\n    run()\n"
+        self.assertEqual(rules(source), [])
+
+    def test_a_main_block_with_no_function_before_it(self):
+        self.assertEqual(rules("import os\nif __name__ == '__main__':\n    pass\n"), [])
 
 
 class NestedWhile(unittest.TestCase):
@@ -210,6 +280,92 @@ class Unparseable(unittest.TestCase):
         self.assertEqual([i.rule for i in check_source('x = """never closed\n')], ["syntax"])
 
 
+class IgnoredFiles(unittest.TestCase):
+    def test_names_starting_with_test_are_ignored(self):
+        for name in ("test_calculator.py", "tests.py", "testing_area.py", "Test_Words.py", "hw/sub/test_x.py", "C:\\work\\test_x.py"):
+            self.assertTrue(is_ignored(name), name)
+
+    def test_other_names_are_not(self):
+        for name in ("calculator.py", "my_test.py", "contest.py", "latest.py", "hw/test/solution.py"):
+            self.assertFalse(is_ignored(name), name)
+
+    def test_check_files_leaves_ignored_files_out(self):
+        bad = "while a:\n    while b:\n        pass\n"
+        result = check_files([{"name": "test_words.py", "text": bad}, {"name": "words.py", "text": bad}])
+        self.assertEqual([r["name"] for r in result], ["words.py"])
+
+    def test_scanning_a_folder_skips_them_but_a_named_file_is_checked(self):
+        bad = "while a:\n    while b:\n        pass\n"
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / "test_words.py").write_text(bad)
+            self.assertEqual(quality.main([folder]), 0)  # only a test file in the folder: nothing to report
+            self.assertEqual(quality.main([str(Path(folder) / "test_words.py")]), 1)  # asked for by name
+
+
+def result(name, *rules_found):
+    return {"name": name, "issues": [{"rule": r, "line": 1, "message": ""} for r in rules_found]}
+
+
+def row(rows, rule):
+    return next(r for r in rows if r["rule"] == rule)
+
+
+class Summary(unittest.TestCase):
+    """Indentation and blank lines fail only when broken MORE THAN TWICE across all the files together."""
+
+    def test_two_slips_in_total_are_tolerated(self):
+        for rule in ("indentation", "blank-lines"):
+            rows = summarize([result("a.py", rule), result("b.py", rule)])
+            self.assertFalse(row(rows, rule)["failed"], rule)
+            self.assertEqual(row(rows, rule)["count"], 2)
+            self.assertEqual(row(rows, rule)["files"], [], "no files listed unless it failed")
+
+    def test_a_third_slip_fails_it_even_when_spread_over_files(self):
+        for rule in ("indentation", "blank-lines"):
+            rows = summarize([result("a.py", rule, rule), result("b.py", rule), result("c.py")])
+            self.assertTrue(row(rows, rule)["failed"], rule)
+            self.assertEqual(row(rows, rule)["files"], ["a.py", "b.py"])  # the files that broke it
+
+    def test_the_count_is_over_all_files_not_per_file(self):
+        rows = summarize([result("a.py", "blank-lines", "blank-lines"), result("b.py", "blank-lines", "blank-lines")])
+        self.assertTrue(row(rows, "blank-lines")["failed"])  # 2 + 2 = 4, though neither file has more than 2
+
+    def test_the_two_spacing_checks_are_counted_separately(self):
+        rows = summarize([result("a.py", "indentation", "indentation", "blank-lines", "blank-lines")])
+        self.assertFalse(row(rows, "indentation")["failed"])
+        self.assertFalse(row(rows, "blank-lines")["failed"])
+
+    def test_nested_while_and_function_length_fail_on_the_first(self):
+        rows = summarize([result("a.py", "nested-while", "function-length"), result("b.py")])
+        self.assertTrue(row(rows, "nested-while")["failed"])
+        self.assertTrue(row(rows, "function-length")["failed"])
+        self.assertEqual(row(rows, "nested-while")["files"], ["a.py"])
+
+    def test_everything_passes_when_nothing_was_found(self):
+        rows = summarize([result("a.py"), result("b.py")])
+        self.assertEqual([r["failed"] for r in rows], [False] * 4)
+        self.assertEqual([r["rule"] for r in rows], ["indentation", "blank-lines", "nested-while", "function-length"])
+
+    def test_labels(self):
+        labels = {r["rule"]: r["label"] for r in summarize([])}
+        self.assertEqual(labels["function-length"], "Functions longer than 20 lines")
+        self.assertEqual(labels["blank-lines"], "2 blank lines between functions")
+
+    def test_a_file_python_cannot_read_adds_a_row_that_fails_at_once(self):
+        rows = summarize([result("a.py", "syntax")])
+        self.assertTrue(row(rows, "syntax")["failed"])
+        self.assertEqual(row(rows, "syntax")["label"], "Python can't read the file")
+        self.assertNotIn("syntax", [r["rule"] for r in summarize([result("a.py")])])
+
+    def test_real_files_end_to_end(self):
+        slip = "def a():\n    pass\ndef b():\n    pass\n"  # no blank lines between the functions
+        two = summarize(check_files([{"name": "x.py", "text": slip}, {"name": "y.py", "text": slip}]))
+        self.assertFalse(row(two, "blank-lines")["failed"])
+        three = summarize(check_files([{"name": n, "text": slip} for n in ("x.py", "y.py", "z.py")]))
+        self.assertTrue(row(three, "blank-lines")["failed"])
+        self.assertEqual(row(three, "blank-lines")["files"], ["x.py", "y.py", "z.py"])
+
+
 class Api(unittest.TestCase):
     def test_check_files_is_json_friendly(self):
         import json
@@ -229,6 +385,15 @@ class Api(unittest.TestCase):
             (Path(folder) / "bad.py").write_text("while a:\n    while b:\n        pass\n")
             self.assertEqual(quality.main([folder]), 1)
         self.assertEqual(quality.main([]), 2)
+
+    def test_command_line_tolerates_two_spacing_slips_but_not_three(self):
+        slip = "def a():\n    pass\ndef b():\n    pass\n"
+        with tempfile.TemporaryDirectory() as folder:
+            for name in ("one.py", "two.py"):
+                (Path(folder) / name).write_text(slip)
+            self.assertEqual(quality.main([folder]), 0)
+            (Path(folder) / "three.py").write_text(slip)
+            self.assertEqual(quality.main([folder]), 1)
 
 
 if __name__ == "__main__":

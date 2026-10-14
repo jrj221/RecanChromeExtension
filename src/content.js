@@ -10,6 +10,11 @@
 
 const GZ = /\.gz(\?|$)/i;
 const PY = /\.py$/i;
+
+// Files whose names start with "test" (test_calculator.py, test_words.recording.jsonl.gz, ...) are
+// ignored by the flag checks: they are not analyzed, flagged or counted. Keep in step with
+// is_ignored in checker/quality.py.
+const isTestFile = (path) => /^test/i.test(String(path).split("/").pop());
 const MARK = "data-webrecan";
 const MIN_ACTIVE_SECONDS = 5 * 60; // keep in sync with flags.js (content scripts can't import modules)
 
@@ -34,8 +39,9 @@ function parsePage(root) {
   // Every student's recording has the same name, so identify files by id, not name.
   const describe = (f) => ({ id: String(f.id ?? f.uuid ?? f.url ?? f.file.url), url: f.url || f.file.url, name: f.path });
   return {
-    recordings: files.filter((f) => GZ.test(f.path || "")).map(describe),
-    sources: files.filter((f) => PY.test(f.path || "")).map(describe),
+    // Test recordings keep their Run recan button but are never analyzed or flagged.
+    recordings: files.filter((f) => GZ.test(f.path || "")).map((f) => ({ ...describe(f), ignored: isTestFile(f.path) })),
+    sources: files.filter((f) => PY.test(f.path || "") && !isTestFile(f.path)).map(describe),
   };
 }
 
@@ -82,7 +88,7 @@ const send = (message) =>
   });
 
 function requestAnalysis(rec) {
-  if (analyses.has(rec.id)) return;
+  if (rec.ignored || analyses.has(rec.id)) return;
   analyses.set(rec.id, { status: "pending" });
   send({ type: "analyze", url: rec.url, name: rec.name, fileId: rec.id, assignmentId: page.assignmentId, recordingNames: page.recordingNames })
     .then((res) => {
@@ -124,23 +130,13 @@ const el = (tag, className, text) => {
 // and which files failed it (not why; run checker/quality.py for the details). This is separate
 // from recan.
 
-// The checks, in the order shown, keyed by the rule names checker/quality.py reports
-// (keep the labels in step with the limits at the top of that file).
-const CHECKS = [
-  ["indentation", "Indentation"],
-  ["blank-lines", "2 blank lines between functions"],
-  ["nested-while", "No nested while loops"],
-  ["function-length", "Functions shorter than 20 lines"],
-];
-const UNREADABLE = ["syntax", "Python can't read the file"]; // only shown if a file has this problem
-
 let quality = { key: "", status: "none" }; // status: "none" | "pending" | "done" | "error"
 let banner = null;
 
 const prefetched = new Set();
 /** Start downloading recordings right away (while the page draws its file list); analysis uses them later. */
 function prefetchRecordings(recordings) {
-  const urls = recordings.map((r) => r.url).filter((url) => !prefetched.has(url));
+  const urls = recordings.filter((r) => !r.ignored).map((r) => r.url).filter((url) => !prefetched.has(url));
   if (!urls.length) return;
   urls.forEach((url) => prefetched.add(url));
   send({ type: "prefetch", urls }).catch(() => {});
@@ -152,7 +148,7 @@ function requestQuality(sources) {
   quality = { key, status: sources.length ? "pending" : "none" };
   if (!sources.length) return;
   send({ type: "quality", files: sources.map(({ id, url, name }) => ({ id, url, name })) })
-    .then((res) => key === quality.key && (quality = { key, status: "done", results: res.results }))
+    .then((res) => key === quality.key && (quality = { key, status: "done", checks: res.checks }))
     .catch((e) => key === quality.key && (quality = { key, status: "error", error: e.message }))
     .finally(paintBanner);
 }
@@ -193,20 +189,17 @@ function fillBanner() {
     banner.classList.add("is-pending");
     summary.textContent = `Couldn't check code quality: ${quality.error}`;
   } else {
-    // For each check, the files that failed it.
-    const failures = (rule) => quality.results.filter((f) => f.issues.some((i) => i.rule === rule)).map((f) => f.name);
-    const rows = [...CHECKS, ...(failures(UNREADABLE[0]).length ? [UNREADABLE] : [])];
-    if (rows.every(([rule]) => !failures(rule).length)) {
+    // The checker decides which checks failed (it counts across all the files) and names them.
+    if (quality.checks.every((check) => !check.failed)) {
       banner.classList.add("is-ok");
       summary.textContent = "✓ Code quality: all checks passed";
     } else {
       banner.classList.add("is-bad");
       summary.textContent = "⚠ Code quality: some checks failed";
-      for (const [rule, label] of rows) {
-        const failed = failures(rule);
-        const row = el("div", failed.length ? "check fail" : "check");
-        row.append(el("span", "mark", failed.length ? "✗" : "✓"), el("span", "label", label));
-        if (failed.length) row.append(el("span", "files", failed.join(", ")));
+      for (const check of quality.checks) {
+        const row = el("div", check.failed ? "check fail" : "check");
+        row.append(el("span", "mark", check.failed ? "✗" : "✓"), el("span", "label", check.label));
+        if (check.failed) row.append(el("span", "files", check.files.join(", ")));
         body.append(row);
       }
     }
@@ -255,6 +248,7 @@ function makeControl(rec) {
   const info = document.createElement("button");
   info.type = "button";
   info.className = "webrecan-info";
+  info.hidden = !!rec.ignored; // test files have nothing to show
   info.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -275,6 +269,7 @@ function stateOf(rec) {
 
 function paint(ctl) {
   if (!ctl.recording) return; // a stale copy; render() removes these
+  if (ctl.recording.ignored) return; // a test file: just the Run recan button, never flagged
   ctl.dataset.state = analyses.get(ctl.recording.id)?.status ?? "pending"; // pending | done | error
   const state = stateOf(ctl.recording);
   const [run, info] = ctl.children;

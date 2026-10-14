@@ -103,22 +103,31 @@ autograder does). See [How does it know which starter code to use?](#how-does-it
 `checker/quality.py` scans the `.py` files in a submission. On a Gradescope submission page the extension runs it on
 every Python file listed there and shows one small box at the top of the page:
 
-- **Green**, "✓ Code quality: all checks passed", when every file passes every check.
+- **Green**, "✓ Code quality: all checks passed", when every check passes.
 - A red **warning**, "⚠ Code quality: some checks failed", otherwise. Click it to see the four checks, a ✓ or ✗ for each, and
   next to each ✗ the files that failed it. It doesn't say why; for the exact lines and reasons, run the checker from a
   terminal (below).
 
+Checks are judged across **all the files together**, not file by file. Indentation and blank-line slips are common and
+minor, so each of those two only fails once it has happened **more than twice in total** (three or more, however they're
+spread over the files). Nested while loops and long functions fail on the first one.
+
 | Check | What passes |
 |---|---|
-| **Indentation** | Every block is indented exactly 4 spaces deeper than the line that opens it. Flags extra indents (8 spaces where 4 belong, or an indent after a line that doesn't open a block), too-small indents, and tabs. |
-| **Blank lines** | Two functions that follow each other have exactly 2 blank lines between them (not more, not fewer). Comments and decorators directly above a function count as part of it. Methods inside classes and nested functions aren't checked. |
-| **Nested while loops** | No `while` loop contains another `while` loop, at any depth. A function defined inside a loop starts fresh. |
-| **Function length** | Every function is **shorter than 20 lines**. |
+| **Indentation** | Every block is indented exactly 4 spaces deeper than the line that opens it. Flags extra indents (8 spaces where 4 belong, or an indent after a line that doesn't open a block), too-small indents, and tabs. A statement that wraps onto more lines (a long `print(...)`, a list, a backslash continuation) can indent its continuation lines any way it likes. **Fails only if it happens more than twice across all the files together.** |
+| **2 blank lines between functions** | Two functions that follow each other, or a function followed by the `if __name__ == "__main__":` block, have exactly 2 blank lines between them (not more, not fewer). Comments and decorators directly above a function (or that `if`) count as part of it. Methods inside classes and nested functions aren't checked. **Fails only if it happens more than twice across all the files together.** |
+| **No nested while loops** | No `while` loop contains another `while` loop, at any depth. A function defined inside a loop starts fresh. |
+| **Functions longer than 20 lines** | Every function is **shorter than 20 lines**, so a function of 20 lines or more fails the check. |
+
+**Test files are ignored.** Any file whose name starts with `test` (`test_calculator.py`, `tests.py`, ...) isn't checked, so
+the box never counts it. When you scan a folder from the command line they're skipped too (a file you name yourself is
+still checked).
 
 A file that Python can't read at all (a syntax error) isn't skipped: it adds a fifth row, "Python can't read the file",
 to the warning.
 
-The limits live at the top of `checker/quality.py` (`INDENT_WIDTH`, `BLANK_LINES_BETWEEN_FUNCTIONS`, `MAX_FUNCTION_LINES`).
+The limits live at the top of `checker/quality.py` (`INDENT_WIDTH`, `BLANK_LINES_BETWEEN_FUNCTIONS`, `MAX_FUNCTION_LINES`,
+and `ALLOWED_VIOLATIONS`, the "more than twice" allowance for the two spacing checks).
 
 It also runs on its own, with just Python and no extension or recan:
 
@@ -126,7 +135,8 @@ It also runs on its own, with just Python and no extension or recan:
 python3 checker/quality.py <file-or-folder> [more ...]
 ```
 
-It prints `file:line: [rule] message` for each issue and exits with 1 if it found any.
+It prints `file:line: [rule] message` for each issue, then one line per check (ok or FAIL, with how many it found and which
+files), and exits with 1 if any check failed. Like the box, it counts slips across all the files you give it.
 
 <br>
 
@@ -203,6 +213,9 @@ When the recording has any of these (each recording is checked on its own):
   own file, or approved starter code.
 - **A starter-code mismatch.** The recording doesn't begin with the assignment's starter code. This is only checked if
   you set up [the optional starter-code step](#optional-starter-code-checks).
+
+Recordings whose names start with `test` (like `test_words.recording.jsonl.gz`) are left out of this: they keep their
+**Run recan** button, but are never analyzed or flagged and have no **?** button.
 
 Everything is worked out by recan itself (`recan summary --json`); the extension only applies the 5 minute rule and
 counts the results. The 5 minutes is `MIN_ACTIVE_SECONDS` in `src/flags.js` (and `src/content.js`, which can't share

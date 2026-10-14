@@ -108,7 +108,7 @@ const handlers = {
   // Code-quality checks for the submission's .py files (not related to recan).
   async quality(msg) {
     const res = await callEngine({ op: "quality", files: msg.files });
-    return { results: res.results };
+    return { results: res.results, checks: res.checks };
   },
 
   // Page script: open the viewer tab for this recording.

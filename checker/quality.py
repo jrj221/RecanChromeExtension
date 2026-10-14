@@ -12,14 +12,25 @@ The checks, and the judgment calls where the rules leave room for interpretation
   indentation      Each block must be indented exactly 4 spaces deeper than the line that opens
                    it. Flags extra indents (8 spaces where 4 is expected, or an indent after a
                    line that doesn't open a block), indents that are too small, and tabs.
-  blank-lines      Two top-level functions that follow one another must be separated by exactly
-                   2 blank lines. Comments and decorators directly above a `def` count as part
-                   of that function. Methods inside classes and nested functions are not checked.
+  blank-lines      Two top-level functions that follow one another, or a top-level function and
+                   the `if __name__ == "__main__":` block right after it, must be separated by
+                   exactly 2 blank lines. Comments and decorators directly above a `def` (or the
+                   `if`) count as part of it. Methods inside classes and nested functions are
+                   not checked.
   nested-while     A `while` loop may not contain another `while` loop (at any depth, through
                    if/for/try). A nested function or class starts fresh.
   function-length  Every function must be shorter than MAX_FUNCTION_LINES. The length is counted
                    in physical lines, from the `def` line to the last line of the function,
                    including blank lines, comments and the docstring.
+
+Spacing slips are common and minor, so indentation and blank lines only FAIL when they happen
+more than twice across ALL the files together (see ALLOWED_VIOLATIONS and summarize). Nested while
+loops and long functions fail on the first one.
+
+A statement that wraps onto more lines (a long print(...), a list, a backslash continuation) may
+indent its continuation lines any way it likes; only new blocks are held to the 4-space rule.
+
+Files whose names start with "test" (test_calculator.py, tests.py, ...) are ignored: see is_ignored.
 """
 from __future__ import annotations
 
@@ -34,13 +45,26 @@ INDENT_WIDTH = 4
 BLANK_LINES_BETWEEN_FUNCTIONS = 2
 MAX_FUNCTION_LINES = 20  # a function must be SHORTER than this
 
-RULE_TITLES = {
-    "indentation": "Indentation",
-    "blank-lines": "Blank lines between functions",
-    "nested-while": "Nested while loops",
-    "function-length": "Function length",
-    "syntax": "Python can't read this file",
-}
+IGNORED_PREFIX = "test"  # files whose names start with this are not checked
+
+
+def is_ignored(name: str) -> bool:
+    """True for files the checks skip: names starting with "test" (any case), in any folder."""
+    return name.replace("\\", "/").split("/")[-1].lower().startswith(IGNORED_PREFIX)
+
+
+# The checks, in the order they are reported, with the names shown to the grader.
+CHECKS = [
+    ("indentation", "Indentation"),
+    ("blank-lines", "2 blank lines between functions"),
+    ("nested-while", "No nested while loops"),
+    ("function-length", f"Functions longer than {MAX_FUNCTION_LINES} lines"),
+]
+SYNTAX_CHECK = ("syntax", "Python can't read the file")  # only reported if some file has the problem
+
+# How many times a check may be broken, across ALL the files together, before it fails.
+# A check not listed here fails on the first violation.
+ALLOWED_VIOLATIONS = {"indentation": 2, "blank-lines": 2}
 
 
 @dataclass(frozen=True)
@@ -120,19 +144,35 @@ def _blank_lines_above(lines: list[str], line: int) -> int:
     return count
 
 
-# ---- blank lines between functions ----
+# ---- blank lines between functions (and before the main block) ----
+
+def _is_main_block(node: ast.AST) -> bool:
+    """`if __name__ == "__main__":` (either side of the ==)."""
+    if not (isinstance(node, ast.If) and isinstance(node.test, ast.Compare)):
+        return False
+    test = node.test
+    if len(test.ops) != 1 or not isinstance(test.ops[0], ast.Eq):
+        return False
+    sides = [test.left, test.comparators[0]]
+    return (
+        any(isinstance(s, ast.Name) and s.id == "__name__" for s in sides)
+        and any(isinstance(s, ast.Constant) and s.value == "__main__" for s in sides)
+    )
+
 
 def _check_blank_lines(tree: ast.Module, lines: list[str]) -> list[Issue]:
     issues = []
     for before, node in zip(tree.body, tree.body[1:]):
-        if not (_is_function(before) and _is_function(node)):
+        # A function followed by another function, or by the `if __name__ == "__main__":` block.
+        if not (_is_function(before) and (_is_function(node) or _is_main_block(node))):
             continue
         blanks = _blank_lines_above(lines, _first_line(node, lines))
         if blanks != BLANK_LINES_BETWEEN_FUNCTIONS:
             plural = "" if blanks == 1 else "s"
+            name = f"'{node.name}'" if _is_function(node) else 'the `if __name__ == "__main__"` block'
             issues.append(Issue(
                 "blank-lines", node.lineno,
-                f"'{node.name}' has {blanks} blank line{plural} above it; there should be exactly {BLANK_LINES_BETWEEN_FUNCTIONS}",
+                f"{name} has {blanks} blank line{plural} above it; there should be exactly {BLANK_LINES_BETWEEN_FUNCTIONS}",
             ))
     return issues
 
@@ -201,18 +241,47 @@ def check_source(source: str) -> list[Issue]:
 
 
 def check_files(files: list[dict]) -> list[dict]:
-    """Check several files. `files` is [{"name": ..., "text": ...}]; the result is JSON-friendly."""
+    """Check several files. `files` is [{"name": ..., "text": ...}]; the result is JSON-friendly.
+
+    Ignored files (see is_ignored) are left out of the result entirely.
+    """
     return [
         {"name": f["name"], "issues": [asdict(issue) for issue in check_source(f["text"])]}
         for f in files
+        if not is_ignored(f["name"])
     ]
 
 
+def summarize(results: list[dict]) -> list[dict]:
+    """One row per check, from the per-file results of check_files.
+
+    A check fails when it was broken more than ALLOWED_VIOLATIONS times across ALL the files
+    together (more than 0 times if it isn't listed there). `files` names the files that broke it,
+    and is only filled in when the check failed.
+    """
+    checks = list(CHECKS)
+    if any(issue["rule"] == SYNTAX_CHECK[0] for r in results for issue in r["issues"]):
+        checks.append(SYNTAX_CHECK)
+    rows = []
+    for rule, label in checks:
+        files = [r["name"] for r in results if any(i["rule"] == rule for i in r["issues"])]
+        count = sum(1 for r in results for i in r["issues"] if i["rule"] == rule)
+        allowed = ALLOWED_VIOLATIONS.get(rule, 0)
+        failed = count > allowed
+        rows.append({"rule": rule, "label": label, "count": count, "allowed": allowed,
+                     "failed": failed, "files": files if failed else []})
+    return rows
+
+
 def _python_files(paths: list[str]) -> list[Path]:
+    """The files to check. Scanning a folder skips ignored files; a file you name yourself is checked."""
     found: list[Path] = []
     for raw in paths:
         path = Path(raw)
-        found += sorted(path.rglob("*.py")) if path.is_dir() else [path]
+        if path.is_dir():
+            found += [p for p in sorted(path.rglob("*.py")) if not is_ignored(p.name)]
+        else:
+            found.append(path)
     return found
 
 
@@ -222,12 +291,21 @@ def main(argv: list[str]) -> int:
         return 2
     total = 0
     files = _python_files(argv)
+    results = []
     for path in files:
-        for issue in check_source(path.read_text(encoding="utf-8", errors="replace")):
+        issues = check_source(path.read_text(encoding="utf-8", errors="replace"))
+        results.append({"name": str(path), "issues": [asdict(i) for i in issues]})
+        for issue in issues:
             print(f"{path}:{issue.line}: [{issue.rule}] {issue.message}")
             total += 1
-    print(f"\n{total} issue(s) in {len(files)} file(s)")
-    return 1 if total else 0
+    print(f"\n{total} issue(s) in {len(files)} file(s)\n")
+    rows = summarize(results)
+    for row in rows:
+        allowed = f", up to {row['allowed']} allowed" if row["allowed"] else ""
+        print(f"{'FAIL' if row['failed'] else 'ok  '} {row['label']} ({row['count']} found{allowed})")
+        if row["files"]:
+            print(f"       in: {', '.join(row['files'])}")
+    return 1 if any(row["failed"] for row in rows) else 0
 
 
 if __name__ == "__main__":

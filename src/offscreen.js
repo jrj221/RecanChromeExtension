@@ -3,7 +3,7 @@
 // It runs upstream's recan unmodified; see runner.js. Recordings stay in memory only.
 import { loadPyodide } from "../vendor/pyodide/pyodide.mjs";
 import { evaluateSummaryJson } from "./flags.js";
-import { checkQuality, mountChecker } from "./quality.js";
+import { checkQuality, mountChecker, summarizeQuality } from "./quality.js";
 import { TA_OPTIONS, generateHtml, generateSummary, mountRecan } from "./runner.js";
 import { loadIndex, loadStarterFiles } from "./starter.js";
 
@@ -111,7 +111,10 @@ async function handle(msg) {
         const checked = await serial(async () => checkQuality(await getPython(), sources));
         missing.forEach((f, i) => qualityResults.set(f.id, checked[i]));
       }
-      return { results: msg.files.map((f) => ({ id: f.id, ...qualityResults.get(f.id) })) };
+      const results = msg.files.map((f) => ({ id: f.id, ...qualityResults.get(f.id) }));
+      // Whether a check fails depends on the totals across all of this submission's files.
+      const checks = await serial(async () => summarizeQuality(await getPython(), results));
+      return { results, checks };
     }
     case "view": {
       const [bytes, starterCode] = await Promise.all([getRecording(msg.url), starterFiles(msg.folderId)]);
