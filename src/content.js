@@ -17,6 +17,10 @@ const PY = /\.py$/i;
 const isTestFile = (path) => /^test/i.test(String(path).split("/").pop());
 const MARK = "data-webrecan";
 const MIN_ACTIVE_SECONDS = 2 * 60; // keep in sync with flags.js (content scripts can't import modules)
+// Progress checks are meant to be short: a total recording time (idle included) over this is flagged.
+const MAX_PROGRESS_CHECK_SECONDS = 2 * 60 * 60;
+const isProgressCheck = (title) => /progress\s*check/i.test(title || "");
+const tooLong = (e) => isProgressCheck(page.assignmentTitle) && e.totalSeconds > MAX_PROGRESS_CHECK_SECONDS;
 
 // Easter egg: this fraction of clicks goes somewhere else instead.
 const EASTER_EGG_ODDS = 0.01;
@@ -35,10 +39,13 @@ function parsePage(root) {
   } catch {
     return { recordings: [], sources: [] };
   }
+  // The assignment's name (falling back to the page title, which carries it too).
+  const assignmentTitle = [props.assignment?.title, props.assignment?.name, props.assignment_title, root.title].filter(Boolean).join(" | ");
   const files = (props.files || []).filter((f) => f.url || f.file?.url);
   // Every student's recording has the same name, so identify files by id, not name.
   const describe = (f) => ({ id: String(f.id ?? f.uuid ?? f.url ?? f.file.url), url: f.url || f.file.url, name: f.path });
   return {
+    assignmentTitle,
     // Test recordings keep their Run recan button but are never analyzed or flagged.
     recordings: files.filter((f) => GZ.test(f.path || "")).map((f) => ({ ...describe(f), ignored: isTestFile(f.path) })),
     sources: files.filter((f) => PY.test(f.path || "") && !isTestFile(f.path)).map(describe),
@@ -75,7 +82,7 @@ function currentPage() {
 
 // ---- talking to the extension ----
 
-let page = { recordings: [], sources: [], assignmentId: "", recordingNames: [] }; // the page last rendered
+let page = { recordings: [], sources: [], assignmentId: "", assignmentTitle: "", recordingNames: [] }; // the page last rendered
 
 const analyses = new Map(); // recording id -> { status: "pending" | "done" | "error", evaluation, starter, error }
 const starterInfos = new Map(); // assignment id + recording names -> { enabled, folderId, source, folders } | "pending"
@@ -282,7 +289,7 @@ function makeControl(rec) {
 function stateOf(rec) {
   const entry = analyses.get(rec.id);
   if (entry?.status === "error") return { flagged: false, tone: "error" };
-  if (entry?.status === "done" && entry.evaluation.flagged) return { flagged: true, tone: "flag" };
+  if (entry?.status === "done" && (entry.evaluation.flagged || tooLong(entry.evaluation))) return { flagged: true, tone: "flag" };
   return { flagged: false, tone: "" };
 }
 
@@ -417,6 +424,16 @@ function fillPopover(ctl) {
           ? `Under the ${MIN_ACTIVE_SECONDS / 60} minute minimum. Idle (no activity for 5+ seconds, or the editor not focused): ${duration(e.idleSeconds)}.`
           : `Idle (no activity for 5+ seconds, or the editor not focused): ${duration(e.idleSeconds)}.`,
       ),
+      ...(isProgressCheck(page.assignmentTitle)
+        ? [
+            row(
+              tooLong(e),
+              "Progress check time",
+              `${duration(e.totalSeconds)} total (idle included)`,
+              tooLong(e) ? `Over the ${MAX_PROGRESS_CHECK_SECONDS / 3600} hour limit for progress checks.` : undefined,
+            ),
+          ]
+        : []),
       row(
         e.flags.unapprovedPastes,
         "Unapproved pastes",
