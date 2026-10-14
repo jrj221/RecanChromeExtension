@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { MAX_FILE_CHARS, MAX_SNIPPET_CHARS, documentAt, evaluateSession, evaluateSummaryJson } from "../src/flags.js";
+import { MAX_FILE_CHARS, MAX_SNIPPET_CHARS, MIN_PASTED_LINES, documentAt, evaluateSession, evaluateSummaryJson } from "../src/flags.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 let checks = 0;
@@ -23,12 +23,14 @@ const session = (annotations) => ({
   annotations,
   starts_with_starter_code: null,
 });
+const lines = (n) => Array.from({ length: n }, (_, i) => `line${i}`).join("\n"); // n lines of text
 const paste = (fragment, at, extra = {}) => ({
   kind: "unapproved_paste",
   timestamp: at,
   fragment,
   char_count: fragment.length,
-  line_count: fragment.split("\n").length,
+  // Long enough to count, unless a test sets line_count itself.
+  line_count: Math.max(MIN_PASTED_LINES, fragment.split("\n").length),
   ...extra,
 });
 
@@ -41,19 +43,29 @@ test("no pastes: count 0 and no snippets", () => {
 test("each unapproved paste becomes a snippet, in order, with its text, size and time", () => {
   const { unapproved, flags } = evaluateSession(
     session([
-      paste("print('a')\nprint('b')", "2026-10-04T02:10:30.000000Z"),
+      paste("print('a')\nprint('b')\nprint('c')", "2026-10-04T02:10:30.000000Z"),
       { kind: "approved_paste", timestamp: "2026-10-04T02:20:00.000000Z", fragment: "skip me", char_count: 7, line_count: 1 },
-      paste("x = 1", "2026-10-04T02:45:00.500000Z"),
+      paste("x = 1\ny = 2\nz = 3", "2026-10-04T02:45:00.500000Z"),
     ]),
   );
   assert.equal(flags.unapprovedPastes, true);
   assert.equal(unapproved.count, 2);
-  assert.equal(unapproved.chars, 21 + 5);
-  assert.deepEqual(unapproved.snippets.map((s) => s.text), ["print('a')\nprint('b')", "x = 1"]);
-  assert.deepEqual(unapproved.snippets.map((s) => s.lines), [2, 1]);
-  assert.deepEqual(unapproved.snippets.map((s) => s.chars), [21, 5]);
+  assert.equal(unapproved.chars, 32 + 17);
+  assert.deepEqual(unapproved.snippets.map((s) => s.text), ["print('a')\nprint('b')\nprint('c')", "x = 1\ny = 2\nz = 3"]);
+  assert.deepEqual(unapproved.snippets.map((s) => s.lines), [3, 3]);
+  assert.deepEqual(unapproved.snippets.map((s) => s.chars), [32, 17]);
   assert.deepEqual(unapproved.snippets.map((s) => s.atSeconds), [630, 2700.5]); // seconds after the recording started
   assert.deepEqual(unapproved.snippets.map((s) => s.truncated), [false, false]);
+});
+
+test("pastes shorter than MIN_PASTED_LINES are not counted, flagged or shown", () => {
+  const at = "2026-10-04T02:10:00.000000Z";
+  const short = evaluateSession(session([paste(lines(MIN_PASTED_LINES - 1), at, { line_count: MIN_PASTED_LINES - 1 })]));
+  assert.deepEqual(short.unapproved, { count: 0, chars: 0, snippets: [] });
+  assert.equal(short.flags.unapprovedPastes, false);
+  const exact = evaluateSession(session([paste(lines(MIN_PASTED_LINES), at), paste("one liner", at, { line_count: 1 })]));
+  assert.equal(exact.unapproved.count, 1);
+  assert.equal(exact.flags.unapprovedPastes, true);
 });
 
 test("a huge paste is cut to the limit but its real size is kept", () => {
@@ -82,7 +94,7 @@ test("a recording with no usable times still lists the pastes, without a time", 
 });
 
 test("missing fragment or sizes don't crash", () => {
-  const s = session([{ kind: "unapproved_paste", timestamp: "2026-10-04T02:10:00.000000Z" }]);
+  const s = session([{ kind: "unapproved_paste", timestamp: "2026-10-04T02:10:00.000000Z", line_count: MIN_PASTED_LINES }]);
   const [snippet] = evaluateSession(s).unapproved.snippets;
   assert.equal(snippet.text, "");
   assert.equal(snippet.chars, 0);

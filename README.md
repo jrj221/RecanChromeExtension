@@ -211,7 +211,7 @@ When the recording has any of these (each recording is checked on its own):
 - **Under 2 minutes of non-idle time.** Non-idle time is the recording's total length minus its idle time, using
   recan's own definition: time with no activity for over 5 seconds, plus time the editor wasn't focused. This is the same
   idle time the player skips with its "Skip idle" option.
-- **Any unapproved pastes.** Large insertions that aren't an IDE action, text copied from earlier in the student's
+- **Any unapproved pastes of 3+ lines** (`MIN_PASTED_LINES` in `src/flags.js`). Large insertions that aren't an IDE action, text copied from earlier in the student's
   own file, or approved starter code.
 - **A starter-code mismatch.** The recording doesn't begin with the assignment's starter code. This is only checked if
   you set up [the optional starter-code step](#optional-starter-code-checks).
