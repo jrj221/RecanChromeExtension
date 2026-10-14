@@ -133,6 +133,11 @@ class BlankLines(unittest.TestCase):
         self.assertEqual([(i.rule, i.line) for i in found], [("blank-lines", 6)])
         self.assertIn("3 blank lines", found[0].message)
 
+    def test_five_blank_lines_fail_right_away(self):
+        for blanks, failed in ((4, False), (5, True), (9, True)):
+            results = check_files([{"name": "a.py", "text": self.two(blanks)}])
+            self.assertEqual(row(summarize(results), "blank-lines")["failed"], failed, blanks)
+
     def test_comment_directly_above_a_def_belongs_to_it(self):
         source = "def a():\n    pass\n\n\n# helper for b\ndef b():\n    pass\n"
         self.assertEqual(rules(source), [])

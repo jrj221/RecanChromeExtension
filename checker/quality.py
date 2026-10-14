@@ -66,12 +66,17 @@ SYNTAX_CHECK = ("syntax", "Python can't read the file")  # only reported if some
 # A check not listed here fails on the first violation.
 ALLOWED_VIOLATIONS = {"indentation": 2, "blank-lines": 2}
 
+# This many blank lines (or more) between functions is so far off that the check fails right
+# away, even if it's under the allowance.
+EGREGIOUS_BLANK_LINES = 5
+
 
 @dataclass(frozen=True)
 class Issue:
     rule: str
     line: int
     message: str
+    severe: bool = False  # fails its check by itself, regardless of the allowance
 
 
 # ---- indentation ----
@@ -173,6 +178,7 @@ def _check_blank_lines(tree: ast.Module, lines: list[str]) -> list[Issue]:
             issues.append(Issue(
                 "blank-lines", node.lineno,
                 f"{name} has {blanks} blank line{plural} above it; there should be exactly {BLANK_LINES_BETWEEN_FUNCTIONS}",
+                severe=blanks >= EGREGIOUS_BLANK_LINES,
             ))
     return issues
 
@@ -267,7 +273,8 @@ def summarize(results: list[dict]) -> list[dict]:
         files = [r["name"] for r in results if any(i["rule"] == rule for i in r["issues"])]
         count = sum(1 for r in results for i in r["issues"] if i["rule"] == rule)
         allowed = ALLOWED_VIOLATIONS.get(rule, 0)
-        failed = count > allowed
+        severe = any(i["rule"] == rule and i.get("severe") for r in results for i in r["issues"])
+        failed = count > allowed or severe
         rows.append({"rule": rule, "label": label, "count": count, "allowed": allowed,
                      "failed": failed, "files": files if failed else []})
     return rows
