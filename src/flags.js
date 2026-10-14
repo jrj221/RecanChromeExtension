@@ -6,7 +6,7 @@ export const MIN_ACTIVE_SECONDS = 2 * 60;
 
 // Unapproved pastes shorter than this many lines are ignored: not counted, not flagged, not
 // shown. Set to 1 to count every paste.
-export const MIN_PASTED_LINES = 3;
+export const MIN_PASTED_LINES = 1;
 
 // A pasted snippet can be huge (hundreds of thousands of characters). The viewer shows at most
 // this many characters of each; the real size is still reported.

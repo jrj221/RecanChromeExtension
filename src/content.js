@@ -202,6 +202,43 @@ function bannerSpot() {
   return null;
 }
 
+/** Scrolling one of the two boxes (either way) scrolls the other by the same amount. */
+function syncScroll(a, b) {
+  for (const [from, to] of [[a, b], [b, a]]) {
+    from.addEventListener("scroll", () => {
+      if (to.scrollTop !== from.scrollTop) to.scrollTop = from.scrollTop;
+      if (to.scrollLeft !== from.scrollLeft) to.scrollLeft = from.scrollLeft;
+    });
+  }
+}
+
+const COPY_MAX_WIDTH = 480;
+const COPY_MAX_HEIGHT = 220;
+
+/** Open the two boxes from nothing to the size of the longer/wider copy (the CSS animates it). */
+function growToFit(a, b) {
+  for (const box of [a, b]) {
+    box.style.width = "0px";
+    box.style.height = "0px";
+  }
+  // Measure how big each would be if nothing limited it, then give both the larger size.
+  let width = 0;
+  let height = 0;
+  for (const box of [a, b]) {
+    box.style.width = "max-content";
+    box.style.height = "auto";
+    width = Math.max(width, box.scrollWidth);
+    height = Math.max(height, box.scrollHeight);
+    box.style.width = "0px";
+    box.style.height = "0px";
+  }
+  void a.offsetWidth; // let the browser see the starting size before the target
+  for (const box of [a, b]) {
+    box.style.width = `${Math.min(width, COPY_MAX_WIDTH)}px`;
+    box.style.height = `${Math.min(height, COPY_MAX_HEIGHT)}px`;
+  }
+}
+
 function fillBanner() {
   const summary = el("summary");
   const body = el("div", "body");
@@ -231,8 +268,12 @@ function fillBanner() {
         for (const item of check.items || []) {
           const dup = el("details", "dup");
           const copies = el("div", "copies"); // the two copies, side by side
-          copies.append(el("pre", "", item.snippet), el("pre", "", item.other));
+          const left = el("pre", "", item.snippet);
+          const right = el("pre", "", item.other);
+          copies.append(left, right);
           dup.append(el("summary", "", `${item.file}: ${item.where}`), copies);
+          syncScroll(left, right);
+          dup.addEventListener("toggle", () => dup.open && growToFit(left, right));
           body.append(dup);
         }
       }

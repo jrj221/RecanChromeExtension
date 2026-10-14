@@ -80,8 +80,9 @@
 .webrecan-banner .check.fail .label { font-weight: 600; }
 .webrecan-banner .dup { margin: 2px 0 4px 22px; font-size: 12px; }
 .webrecan-banner .dup summary { cursor: pointer; color: #5f6368; }
-.webrecan-banner .dup .copies { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0; }
-.webrecan-banner .dup pre { flex: 1 1 260px; min-width: 0; margin: 0; padding: 6px 8px; max-width: 70ch; overflow: auto; max-height: 220px; background: rgba(0, 0, 0, 0.05); font: 12px/1.4 ui-monospace, Menlo, monospace; color: #202124; }
+.webrecan-banner .dup .copies { display: flex; gap: 8px; margin: 4px 0; }
+.webrecan-banner .dup pre { box-sizing: border-box; flex: none; overflow: auto; margin: 0; padding: 6px 8px; max-width: 480px; max-height: 220px; background: rgba(0, 0, 0, 0.05); font: 12px/1.4 ui-monospace, Menlo, monospace; color: #202124; white-space: pre; transition: width 0.25s ease, height 0.25s ease; }
+@media (prefers-reduced-motion: reduce) { .webrecan-banner .dup pre { transition: none; } }
 .webrecan-banner .check .files { font: 12px ui-monospace, Menlo, monospace; color: #a50e0e; }
 
 /* "Show" on the unapproved pastes row, and the card that shows the pasted code beside the info card. */
