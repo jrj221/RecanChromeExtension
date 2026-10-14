@@ -54,6 +54,13 @@ class Duplication(unittest.TestCase):
         )
         self.assertEqual(dups(source), [])
 
+    def test_short_functions_sharing_a_few_calls_are_fine(self):
+        source = (
+            "def up(bit):\n    bit.left()\n    out(bit)\n    come_back(bit)\n"
+            "def down(bit):\n    bit.left()\n    bit.move()\n    bit.right()\n    out(bit)\n    come_back(bit)\n"
+        )
+        self.assertEqual(dups(source), [])
+
     def test_different_functions_are_fine(self):
         source = (
             "def a(x):\n    t = 0\n    for i in range(x):\n        t += i\n    return t\n\n\n"

@@ -328,7 +328,9 @@ def _check_duplication(tree: ast.Module, source: str) -> list[Issue]:
     functions = []
     for node in ast.walk(tree):
         if _is_function(node):
-            body = [k for k, (n, _, _) in enumerate(code) if node.lineno <= n <= node.end_lineno]
+            # The `def` line is left out of the comparison: every function has one, so it would
+            # make short functions look more alike than they are.
+            body = [k for k, (n, _, _) in enumerate(code) if node.lineno < n <= node.end_lineno]
             if len(body) >= MIN_FUNCTION_LINES:
                 functions.append((node, body))
     functions.sort(key=lambda f: f[0].lineno)
@@ -339,8 +341,10 @@ def _check_duplication(tree: ast.Module, source: str) -> list[Issue]:
                 continue  # one is inside the other
             shapes_a = [code[k][2] for k in ba]
             shapes_b = [code[k][2] for k in bb]
-            ratio = difflib.SequenceMatcher(None, shapes_a, shapes_b, autojunk=False).ratio()
-            if ratio >= SIMILAR_RATIO:
+            matcher = difflib.SequenceMatcher(None, shapes_a, shapes_b, autojunk=False)
+            ratio = matcher.ratio()
+            shared = sum(block.size for block in matcher.get_matching_blocks())
+            if ratio >= SIMILAR_RATIO and shared >= MIN_SIMILAR_LINES:
                 issues.append(Issue(
                     "duplication", fb.lineno,
                     f"'{fb.name}' is {round(ratio * 100)}% the same as '{fa.name}' (line {fa.lineno}); "
@@ -349,7 +353,7 @@ def _check_duplication(tree: ast.Module, source: str) -> list[Issue]:
                     other=_excerpt(source, fb.lineno, fb.end_lineno),
                     where=f"'{fa.name}' (line {fa.lineno}) and '{fb.name}' (line {fb.lineno})",
                 ))
-                claimed += [(ba[0], ba[-1]), (bb[0], bb[-1])]
+                claimed += [(ba[0] - 1, ba[-1]), (bb[0] - 1, bb[-1])]  # -1: their def lines too
 
     exact = _runs([c[1] for c in code], MIN_DUPLICATE_LINES)
     similar = _runs([c[2] for c in code], MIN_SIMILAR_LINES)
