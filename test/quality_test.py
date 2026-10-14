@@ -42,6 +42,14 @@ class Duplication(unittest.TestCase):
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0].where, "lines 2-4, 6-8, 10-12 and 14-16 (4 copies)")
 
+    def test_copies_dont_run_across_function_boundaries(self):
+        source = (
+            "def a(bit):\n    bit.move()\n    bit.left()\n\n\n"
+            "def turning(bit):\n    bit.left()\n    bit.move()\n    bit.left()\n\n\n"
+            "def accommodate3(bit):\n    bit.left()\n    bit.move()\n    bit.right()\n"
+        )
+        self.assertEqual(dups(source), [])
+
     def test_two_identical_lines_are_fine(self):
         block = "    a = input('a? ')\n    print(a)\n"
         self.assertEqual(dups("def f():\n" + block + "    z = 0\n" + block), [])

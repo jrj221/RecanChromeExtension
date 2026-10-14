@@ -260,11 +260,12 @@ def _shape(line: str) -> str:
     anything that is called or reached through a dot (bit.move(), fill_down(...)) are kept."""
     line = _STRING.sub("S", line)
     line = _NUMBER.sub("N", line)
-    line = re.sub(r"\b(def|class)\s+\w+", r"\1 F", line)  # a function's own name doesn't matter
+    if re.match(r"(async\s+)?(def|class)\b", line):
+        return line  # a def line is kept whole, so copied code never runs on across two functions
 
     def blank(match: re.Match) -> str:
         word = match.group(0)
-        if word in _KEYWORDS or word in ("S", "N", "F"):
+        if word in _KEYWORDS or word in ("S", "N"):
             return word
         before, after = line[:match.start()].rstrip(), line[match.end():].lstrip()
         if before.endswith(".") or after.startswith("("):
