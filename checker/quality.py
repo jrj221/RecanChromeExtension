@@ -45,6 +45,7 @@ import difflib
 import io
 import re
 import sys
+import textwrap
 import tokenize
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -91,6 +92,8 @@ class Issue:
     line: int
     message: str
     severe: bool = False  # fails its check by itself, regardless of the allowance
+    snippet: str = ""  # duplication only: the code that was repeated (one copy)
+    where: str = ""  # duplication only: e.g. "lines 4-8 and 14-18"
 
 
 # ---- indentation ----
@@ -293,6 +296,11 @@ def _runs(keys: list[str], minimum: int) -> list[tuple[int, int, int]]:
     return runs
 
 
+def _excerpt(source: str, first: int, last: int) -> str:
+    """Source lines first..last (1-based), with the common indentation removed."""
+    return textwrap.dedent("\n".join(source.splitlines()[first - 1:last]))
+
+
 def _check_duplication(tree: ast.Module, source: str) -> list[Issue]:
     code = _code_lines(source)
     if len(code) > MAX_COMPARED_LINES:
@@ -324,6 +332,8 @@ def _check_duplication(tree: ast.Module, source: str) -> list[Issue]:
                     "duplication", fb.lineno,
                     f"'{fb.name}' is {round(ratio * 100)}% the same as '{fa.name}' (line {fa.lineno}); "
                     "combine them into one function with parameters",
+                    snippet=_excerpt(source, fa.lineno, fa.end_lineno),
+                    where=f"'{fa.name}' (line {fa.lineno}) and '{fb.name}' (line {fb.lineno})",
                 ))
                 claimed += [(ba[0], ba[-1]), (bb[0], bb[-1])]
 
@@ -337,6 +347,8 @@ def _check_duplication(tree: ast.Module, source: str) -> list[Issue]:
         issues.append(Issue(
             "duplication", code[j][0],
             f"{n} lines here are {what} as the lines starting at line {code[i][0]}; make them one function",
+            snippet=_excerpt(source, code[i][0], code[i + n - 1][0]),
+            where=f"lines {code[i][0]}-{code[i + n - 1][0]} and {code[j][0]}-{code[j + n - 1][0]}",
         ))
         claimed += [(i, i + n - 1), (j, j + n - 1)]
     return issues
@@ -393,8 +405,14 @@ def summarize(results: list[dict]) -> list[dict]:
         allowed = ALLOWED_VIOLATIONS.get(rule, 0)
         severe = any(i["rule"] == rule and i.get("severe") for r in results for i in r["issues"])
         failed = count > allowed or severe
-        rows.append({"rule": rule, "label": label, "count": count, "allowed": allowed,
-                     "failed": failed, "files": files if failed else []})
+        row = {"rule": rule, "label": label, "count": count, "allowed": allowed,
+               "failed": failed, "files": files if failed else []}
+        if rule == "duplication" and failed:  # the repeated code, to show under the check
+            row["items"] = [
+                {"file": r["name"], "line": i["line"], "where": i["where"], "snippet": i["snippet"]}
+                for r in results for i in r["issues"] if i["rule"] == rule
+            ]
+        rows.append(row)
     return rows
 
 

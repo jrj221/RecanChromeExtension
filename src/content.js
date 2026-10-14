@@ -227,6 +227,12 @@ function fillBanner() {
         const row = el("div", "check fail");
         row.append(el("span", "mark", "✗"), el("span", "label", check.label), el("span", "files", check.files.join(", ")));
         body.append(row);
+        // Duplicated code: a dropdown per repeated snippet.
+        for (const item of check.items || []) {
+          const dup = el("details", "dup");
+          dup.append(el("summary", "", `${item.file}: ${item.where}`), el("pre", "", item.snippet));
+          body.append(dup);
+        }
       }
     }
   }
