@@ -22,7 +22,7 @@
 .webrecan-pop { position: fixed; z-index: 100000; width: 330px; max-width: calc(100vw - 16px); box-sizing: border-box;
   padding: 12px 14px; background: #fff; color: #202124; border: 1px solid #dadce0; border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, .22); font: 13px/1.4 system-ui, sans-serif; text-align: left; }
-.webrecan-pop .title { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #e8eaed;
+.webrecan-pop .title { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #e8eaed;
   font: 600 12px ui-monospace, Menlo, monospace; overflow-wrap: anywhere; }
 .webrecan-pop .row { margin: 8px 0; padding-left: 10px; border-left: 3px solid #dadce0; }
 .webrecan-pop .row.flag { border-left-color: #d93025; }
@@ -82,3 +82,8 @@
 .webrecan-snip .snip-line.hl { background: #fff6d6; box-shadow: inset 3px 0 0 #f9ab00; }
 .webrecan-snip .snip-line.hl .snip-num { color: #b06000; }
 .webrecan-snip .snip-note { margin-top: 6px; color: #5f6368; font-size: 12px; }
+
+/* The X in the info card's heading: closes the card and the pasted-code viewer together. */
+.webrecan-pop .pop-close { flex: none; margin: -2px -4px 0 0; padding: 0 6px; border: 0; border-radius: 4px; background: none;
+  color: #5f6368; font: 14px/22px system-ui, sans-serif; cursor: pointer; }
+.webrecan-pop .pop-close:hover { background: #f1f3f4; color: #202124; }

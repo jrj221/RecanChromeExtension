@@ -210,6 +210,7 @@ function closePopover() {
   pop = null;
   popoverFor = null;
   snippetView = null;
+  snippetAuto = null;
 }
 
 function togglePopover(ctl) {
@@ -270,7 +271,24 @@ function fillPopover(ctl) {
   const listWasOpen = !!pop.querySelector(".picker-list:not([hidden])");
   const listScroll = pop.querySelector(".picker-list")?.scrollTop ?? 0;
 
-  const parts = [el("div", "title", rec.name)];
+  // The pasted-code viewer is open by default: as soon as this card has the analysis and there is at
+  // least one unapproved paste. Only once per card, so hiding it stays hidden when the card is rebuilt.
+  if (entry?.status === "done" && entry.evaluation.unapproved?.snippets?.length && snippetAuto !== rec.id && !listWasOpen) {
+    snippetAuto = rec.id;
+    snippetView = { recId: rec.id, index: 0 };
+  }
+
+  // The heading: the file name, and an X that closes this card and the viewer together.
+  const close = el("button", "pop-close", "✕");
+  close.type = "button";
+  close.setAttribute("aria-label", "Close");
+  close.addEventListener("click", (event) => {
+    event.preventDefault();
+    closePopover();
+  });
+  const heading = el("div", "title");
+  heading.append(el("span", "", rec.name), close);
+  const parts = [heading];
 
   if (entry?.status === "error") {
     parts.push(el("div", "row flag", `Couldn't analyze this recording: ${entry.error}`));
@@ -324,6 +342,16 @@ function fillPopover(ctl) {
     }
   }
   renderSnippetCard(); // the viewer is a child of the card, so it was just removed; put it back
+  syncShowButton();
+}
+
+/** The button on the unapproved pastes row says Hide while the viewer is open, Show otherwise. */
+function syncShowButton() {
+  const button = pop?.querySelector(".webrecan-show");
+  if (!button) return;
+  const open = snippetView !== null && snippetView.recId === popoverFor?.recording?.id;
+  button.textContent = open ? "Hide" : "Show";
+  button.setAttribute("aria-expanded", String(open));
 }
 
 /**
@@ -436,12 +464,14 @@ const placeList = (list) => placeSideCard(list, LIST_WIDTH, MIN_LIST_WIDTH);
 // With more than one paste there are arrows to step through them (or the Left/Right keys).
 
 let snippetView = null; // { recId, index } while the viewer is open
+let snippetAuto = null; // the recording the viewer was last opened for BY DEFAULT in this card (so hiding it sticks)
 
 function showSnippet(ctl) {
   closeList(); // the dropdown and the viewer share the space beside the card
   snippetView = { recId: ctl.recording.id, index: 0 };
   positionPopover(ctl); // make room: the card moves over, then the viewer is placed beside it
   renderSnippetCard();
+  syncShowButton();
 }
 
 function closeSnippet() {
@@ -449,6 +479,7 @@ function closeSnippet() {
   snippetView = null;
   pop?.querySelector(".webrecan-snip")?.remove();
   if (wasOpen && popoverFor?.isConnected) positionPopover(popoverFor); // back beside the ? button
+  syncShowButton();
 }
 
 function stepSnippet(delta) {

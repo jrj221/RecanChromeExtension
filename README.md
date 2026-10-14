@@ -182,21 +182,26 @@ When the optional step is set up it also has a **picker** for which assignment's
 
 ### How do I see the pasted code?
 
-Next to **Unapproved pastes** in the **?** card, click **Show**. A second card opens to the **right** of it showing **the whole
-file as it was at the end of that paste**, with line numbers and the pasted code **highlighted** (any line the paste touches is
-highlighted whole), scrolled so the paste is in view. It's wide, so the **?** card slides over to the left to make room (it can
-end up over the button and the file list); closing the viewer puts it back beside the button.
+It opens by itself. When a recording has at least one unapproved paste, opening its **?** card also opens a second card, the
+paste viewer, to the **right** of it. (If the analysis isn't finished yet when you open the **?** card, the viewer opens the moment
+it is.) It shows **the whole file as it was at the end of that paste**, with line numbers and the pasted code **highlighted** (any
+line the paste touches is highlighted whole), scrolled so the paste is in view. It's wide, so the **?** card slides over to the
+left to make room (it can end up over the button and the file list).
 
+- The button next to **Unapproved pastes** says **Hide** while the viewer is open and **Show** when it's closed. Hiding it
+  sticks: the viewer won't pop back open until you open the **?** card again.
+- The **✕** in the **?** card's heading closes **both** cards in one click. The **✕** in the viewer closes only the viewer.
+  **Escape** closes the viewer first, then the **?** card.
 - The file is rebuilt from the recording's edits (recan's `summary --json` already includes them), so it shows exactly what
   the student had at that moment. If the IDE re-indented the paste a few milliseconds later, you see the re-indented text,
   which is also what recan counts as the paste.
 - If the recording has more than one unapproved paste, the heading reads "Paste 2 of 3" and there are **‹ ›** arrows to
   step through them, in order. The file shown is the file *at that paste*, so an earlier paste appears as plain context and
-  a later one isn't there yet. The **Left** and **Right** arrow keys do the same (ignored while you're typing in a page field).
+  a later one isn't there yet. The **Left** and **Right** arrow keys do the same while the viewer is open (ignored while
+  you're typing in a page field).
 - Very large files are cut to a window of 100,000 characters around the paste (with the real line numbers). If a recording
   doesn't carry enough to rebuild the file, a short note says so and the card shows just the pasted code.
-- **Escape**, or the **✕**, closes the viewer (a second Escape closes the **?** card). Clicking **Show** again also closes it.
-  Opening the starter-code dropdown closes it too, since they share the space beside the **?** card.
+- Opening the starter-code dropdown closes the viewer (they share the space beside the **?** card); **Show** closes the dropdown.
 - In a narrow window the viewer narrows to fit, and the **?** card moves as far over as it needs. If the **?** button is at the far
   right of the window, the cards open on the left instead (the **?** card then slides right to make room).
 
