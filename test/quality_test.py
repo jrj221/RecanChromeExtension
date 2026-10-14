@@ -64,6 +64,12 @@ class Duplication(unittest.TestCase):
         )
         self.assertEqual(dups(source), [])
 
+    def test_a_loop_must_match_its_whole_body(self):
+        head = "def f(bit):\n    bit.move()\n    bit.left()\n    while bit.can_move_front():\n"
+        same = "        a()\n        b()\n"
+        source = head + same + "        c()\n    z = 0\n    bit.move()\n    bit.left()\n    while bit.can_move_front():\n" + same + "        d()\n"
+        self.assertEqual(dups(source), [])
+
     def test_a_loop_with_its_body_is_duplicated_code(self):
         loop = "    while bit.can_move_front():\n        bit.move()\n        bit.paint('blue')\n"
         self.assertEqual(len(dups("def f(bit):\n" + loop + "    bit.right()\n" + loop)), 1)

@@ -322,6 +322,21 @@ def _check_duplication(tree: ast.Module, source: str) -> list[Issue]:
     def covered(first: int, last: int) -> bool:
         return any(first <= b and a <= last for a, b in claimed)  # any overlap
 
+    indents = [int(c[1].split(":", 1)[0]) for c in code]
+
+    def body_end(k: int) -> int:
+        """Index of the last line of the block that line k opens (k itself if it opens none)."""
+        if not code[k][1].endswith(":"):
+            return k
+        end = k
+        while end + 1 < len(code) and indents[end + 1] > indents[k]:
+            end += 1
+        return end
+
+    def whole(p: int, n: int) -> bool:
+        """True if the n lines from p never cut a block short: every block they open ends inside."""
+        return all(body_end(k) <= p + n - 1 for k in range(p, p + n))
+
     exact_keys = [c[1] for c in code]
     shape_keys = [c[2] for c in code]
     runs = [(r, exact_keys) for r in sorted(_runs(exact_keys, MIN_DUPLICATE_LINES), key=lambda r: -r[2])]
@@ -332,23 +347,25 @@ def _check_duplication(tree: ast.Module, source: str) -> list[Issue]:
     for (i, j, n), keys in runs:
         if covered(i, i + n - 1) or covered(j, j + n - 1):
             continue
-        # A line that opens a block (`while x:`) only counts together with its body, so a run
-        # can't end on one.
-        while n and code[i + n - 1][1].endswith(":"):
+        # A block (`while x:` and its body) only counts as a whole, in every copy: if the copies
+        # stop partway into a body, drop lines from the end until they don't.
+        while n and not (whole(i, n) and whole(j, n)):
             n -= 1
         if n < minimum_for(keys):
             continue
         # A run that is itself the same few lines over and over is reported as those few lines.
         for unit in range(minimum_for(keys), n // 2 + 1):
-            if n % unit == 0 and keys[i:i + n] == keys[i:i + unit] * (n // unit):
+            if n % unit == 0 and keys[i:i + n] == keys[i:i + unit] * (n // unit) and whole(i, unit):
                 n = unit
                 break
         # Every copy of this code in the file, not just the pair: one finding however many there are.
         wanted = keys[i:i + n]
         starts = []
         for p in range(len(keys) - n + 1):
-            if keys[p:p + n] == wanted and not covered(p, p + n - 1) and not (starts and p < starts[-1] + n):
+            if keys[p:p + n] == wanted and whole(p, n) and not covered(p, p + n - 1) and not (starts and p < starts[-1] + n):
                 starts.append(p)
+        if len(starts) < 2:
+            continue
         identical = all(code[p + k][1] == code[i + k][1] for p in starts for k in range(n))
         what = "the same" if identical else "nearly the same (only names or values differ)"
         spans = [f"{code[p][0]}-{code[p + n - 1][0]}" for p in starts]
