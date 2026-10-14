@@ -170,6 +170,7 @@ function paintBanner() {
     banner = document.createElement("details");
     created.add(banner);
     banner.className = "webrecan-banner";
+    banner.addEventListener("toggle", animateBanner, true); // toggle doesn't bubble; this catches the dropdowns inside too
   }
   // Sit above the first file so it scrolls with the files, not the page.
   const spot = bannerSpot();
@@ -212,31 +213,43 @@ function syncScroll(a, b) {
   }
 }
 
-const COPY_MAX_WIDTH = 480;
-const COPY_MAX_HEIGHT = 220;
+// The box itself grows and shrinks smoothly when its size changes (a dropdown opens or closes).
+// <details> can't animate on its own, so: remember the size, measure the new natural size, and
+// transition the box's width/height from one to the other.
+let bannerSize = null; // { w, h } of the box when it last settled
+let bannerAnimating = false;
 
-/** Open the two boxes from nothing to the size of the longer/wider copy (the CSS animates it). */
-function growToFit(a, b) {
-  for (const box of [a, b]) {
-    box.style.width = "0px";
-    box.style.height = "0px";
+function animateBanner() {
+  if (!banner?.isConnected) return;
+  const from = bannerAnimating ? banner.getBoundingClientRect() : bannerSize;
+  banner.style.transition = "none";
+  banner.style.width = "";
+  banner.style.height = "";
+  const rect = banner.getBoundingClientRect();
+  const to = { w: rect.width, h: rect.height };
+  bannerSize = to;
+  const moves = from && to.w > 0 && (Math.abs(from.w - to.w) > 1 || Math.abs(from.h - to.h) > 1);
+  const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  if (!moves || reduced) {
+    bannerAnimating = false;
+    banner.style.transition = "";
+    return;
   }
-  // Measure how big each would be if nothing limited it, then give both the larger size.
-  let width = 0;
-  let height = 0;
-  for (const box of [a, b]) {
-    box.style.width = "max-content";
-    box.style.height = "auto";
-    width = Math.max(width, box.scrollWidth);
-    height = Math.max(height, box.scrollHeight);
-    box.style.width = "0px";
-    box.style.height = "0px";
-  }
-  void a.offsetWidth; // let the browser see the starting size before the target
-  for (const box of [a, b]) {
-    box.style.width = `${Math.min(width, COPY_MAX_WIDTH)}px`;
-    box.style.height = `${Math.min(height, COPY_MAX_HEIGHT)}px`;
-  }
+  bannerAnimating = true;
+  banner.style.overflow = "hidden";
+  banner.style.width = `${from.w ?? from.width}px`;
+  banner.style.height = `${from.h ?? from.height}px`;
+  void banner.offsetWidth; // let the browser see the starting size first
+  banner.style.transition = "width 0.25s ease, height 0.25s ease";
+  banner.style.width = `${to.w}px`;
+  banner.style.height = `${to.h}px`;
+  const mine = banner;
+  const finish = () => {
+    if (banner !== mine || !bannerAnimating) return;
+    bannerAnimating = false;
+    banner.style.cssText = ""; // back to sizing itself
+  };
+  setTimeout(finish, 300);
 }
 
 function fillBanner() {
@@ -273,13 +286,16 @@ function fillBanner() {
           copies.append(left, right);
           dup.append(el("summary", "", `${item.file}: ${item.where}`), copies);
           syncScroll(left, right);
-          dup.addEventListener("toggle", () => dup.open && growToFit(left, right));
-          body.append(dup);
+                    body.append(dup);
         }
       }
     }
   }
   banner.replaceChildren(summary, body);
+  bannerAnimating = false;
+  banner.style.cssText = "";
+  const settled = banner.getBoundingClientRect();
+  bannerSize = settled.width > 0 ? { w: settled.width, h: settled.height } : null;
 }
 
 // ---- the buttons ----

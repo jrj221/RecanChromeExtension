@@ -24,8 +24,8 @@ The checks, and the judgment calls where the rules leave room for interpretation
                    including blank lines, comments and the docstring.
   duplication      Code that should be one function, within a file: a run of MIN_DUPLICATE_LINES
                    or more identical lines that appears twice, or a run of MIN_SIMILAR_LINES or
-                   more that appears twice and differs only in string contents and variable
-                   names. Blank lines, comments and lines like `else:` or `return` don't count.
+                   more that appears twice and differs only in string contents, numbers and
+                   variable names. Blank lines, comments and lines like `else:` or `return` don't count.
 
 Spacing slips are common and minor, so indentation and blank lines only FAIL when they happen
 more than twice across ALL the files together (see ALLOWED_VIOLATIONS and summarize). Nested while
@@ -243,6 +243,7 @@ def _check_function_length(tree: ast.Module) -> list[Issue]:
 _STRING = re.compile(
     r"""[rbfuRBFU]{0,2}(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')"""
 )
+_NUMBER = re.compile(r"\b\d[\d_]*\.?\d*(?:[eE][+-]?\d+)?\b")
 _NAME = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
 # Words that stay as they are when a line is reduced to its shape (the rest become "I").
 _KEYWORDS = {
@@ -255,14 +256,15 @@ _TRIVIAL = re.compile(r"^(?:else|try|finally|return|break|continue|pass|[)\]}]+)
 
 
 def _shape(line: str) -> str:
-    """The line with string contents and variable names blanked out (numbers are kept). Keywords, built-ins, and
+    """The line with string contents, numbers and variable names blanked out. Keywords, built-ins, and
     anything that is called or reached through a dot (bit.move(), fill_down(...)) are kept."""
     line = _STRING.sub("S", line)
+    line = _NUMBER.sub("N", line)
     line = re.sub(r"\b(def|class)\s+\w+", r"\1 F", line)  # a function's own name doesn't matter
 
     def blank(match: re.Match) -> str:
         word = match.group(0)
-        if word in _KEYWORDS or word in ("S", "F"):
+        if word in _KEYWORDS or word in ("S", "N", "F"):
             return word
         before, after = line[:match.start()].rstrip(), line[match.end():].lstrip()
         if before.endswith(".") or after.startswith("("):

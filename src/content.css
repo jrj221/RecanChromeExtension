@@ -62,7 +62,7 @@
 
 /* The code-quality box at the top of the page: small and green when every check passes, a
    red warning block otherwise (click it to see which files failed which check). */
-.webrecan-banner { --edge: #dadce0; --fill: #f8f9fa; --ink: #5f6368; display: block; width: fit-content; max-width: calc(100% - 32px);
+.webrecan-banner { --edge: #dadce0; --fill: #f8f9fa; --ink: #5f6368; display: block; box-sizing: border-box; width: fit-content; max-width: calc(100% - 32px);
   margin: 8px 16px; border: 1.5px solid var(--edge); border-radius: 6px; background: var(--fill); color: var(--ink);
   font: 13px/1.45 system-ui, sans-serif; }
 .webrecan-banner.is-ok { --edge: #34a853; --fill: #e6f4ea; --ink: #137333; }
@@ -81,8 +81,7 @@
 .webrecan-banner .dup { margin: 2px 0 4px 22px; font-size: 12px; }
 .webrecan-banner .dup summary { cursor: pointer; color: #5f6368; }
 .webrecan-banner .dup .copies { display: flex; gap: 8px; margin: 4px 0; }
-.webrecan-banner .dup pre { box-sizing: border-box; flex: none; overflow: auto; margin: 0; padding: 6px 8px; max-width: 480px; max-height: 220px; background: rgba(0, 0, 0, 0.05); font: 12px/1.4 ui-monospace, Menlo, monospace; color: #202124; white-space: pre; transition: width 0.25s ease, height 0.25s ease; }
-@media (prefers-reduced-motion: reduce) { .webrecan-banner .dup pre { transition: none; } }
+.webrecan-banner .dup pre { box-sizing: border-box; flex: 0 1 auto; min-width: 0; overflow: auto; margin: 0; padding: 6px 8px; max-width: 480px; max-height: 220px; background: rgba(0, 0, 0, 0.05); font: 12px/1.4 ui-monospace, Menlo, monospace; color: #202124; white-space: pre; }
 .webrecan-banner .check .files { font: 12px ui-monospace, Menlo, monospace; color: #a50e0e; }
 
 /* "Show" on the unapproved pastes row, and the card that shows the pasted code beside the info card. */

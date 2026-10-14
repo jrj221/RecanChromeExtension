@@ -40,17 +40,17 @@ class Duplication(unittest.TestCase):
         )
         self.assertEqual(dups(source), [7])
 
-    def test_other_numbers_make_it_different_code(self):
+    def test_other_numbers_still_count_as_the_same_code(self):
         source = (
             "def f():\n    t = 0\n    for i in range(5):\n        t += i * 2\n    print('a', t)\n    z = 0\n"
             "    s = 1\n    for k in range(9):\n        s += k * 3\n    print('b', s)\n"
         )
-        self.assertEqual(dups(source), [])
+        self.assertEqual(dups(source), [7])
 
-    def test_alike_functions_are_not_compared_as_a_whole(self):
+    def test_only_a_few_matching_lines_in_otherwise_different_functions_is_fine(self):
         source = (
-            "def a(x):\n    t = 0\n    for i in range(x):\n        t += i * 2\n    print('d', t)\n    return t\n\n\n"
-            "def b(y):\n    c = 1\n    for k in range(y):\n        c += k * 3\n    print('e', c)\n    return c\n"
+            "def a(x):\n    t = 0\n    for i in range(x):\n        t += i\n    print('d', t)\n    return t\n\n\n"
+            "def b(y):\n    c = [1]\n    for k in y:\n        c.append(k)\n    print('e', c)\n    return c\n"
         )
         self.assertEqual(dups(source), [])
 
