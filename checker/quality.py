@@ -277,13 +277,15 @@ def _shape(line: str) -> str:
 
 def _code_lines(source: str) -> list[tuple[int, str, str]]:
     """(line number, exact text, shape) for each line that carries code, skipping blanks,
-    comments and trivial lines like `else:`. Whitespace inside a line is squeezed."""
+    comments and trivial lines like `else:`. Whitespace inside a line is squeezed, and both
+    forms start with the line's indentation (`4:bit.move()`), so indentation has to match."""
     found = []
     for number, raw in enumerate(source.splitlines(), 1):
         text = " ".join(raw.split())
         if not text or text.startswith("#") or _TRIVIAL.match(text):
             continue
-        found.append((number, text, _shape(text)))
+        indent = len(raw) - len(raw.lstrip())  # code at another indentation is different code
+        found.append((number, f"{indent}:{text}", f"{indent}:{_shape(text)}"))
     return found
 
 
@@ -329,6 +331,12 @@ def _check_duplication(tree: ast.Module, source: str) -> list[Issue]:
 
     for (i, j, n), keys in runs:
         if covered(i, i + n - 1) or covered(j, j + n - 1):
+            continue
+        # A line that opens a block (`while x:`) only counts together with its body, so a run
+        # can't end on one.
+        while n and code[i + n - 1][1].endswith(":"):
+            n -= 1
+        if n < minimum_for(keys):
             continue
         # A run that is itself the same few lines over and over is reported as those few lines.
         for unit in range(minimum_for(keys), n // 2 + 1):

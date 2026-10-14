@@ -50,6 +50,24 @@ class Duplication(unittest.TestCase):
         )
         self.assertEqual(dups(source), [])
 
+    def test_indentation_has_to_match(self):
+        source = (
+            "def f(bit):\n    bit.move()\n    bit.paint('blue')\n    bit.right()\n    z = 0\n"
+            "    while z:\n        bit.move()\n        bit.paint('blue')\n        bit.right()\n"
+        )
+        self.assertEqual(dups(source), [])
+
+    def test_a_loop_header_alone_is_not_duplicated_code(self):
+        source = (
+            "def f(bit):\n    bit.right()\n    bit.left()\n    while bit.can_move_front():\n        bit.paint('red')\n"
+            "    bit.right()\n    bit.left()\n    while bit.can_move_front():\n        bit.move()\n"
+        )
+        self.assertEqual(dups(source), [])
+
+    def test_a_loop_with_its_body_is_duplicated_code(self):
+        loop = "    while bit.can_move_front():\n        bit.move()\n        bit.paint('blue')\n"
+        self.assertEqual(len(dups("def f(bit):\n" + loop + "    bit.right()\n" + loop)), 1)
+
     def test_two_identical_lines_are_fine(self):
         block = "    a = input('a? ')\n    print(a)\n"
         self.assertEqual(dups("def f():\n" + block + "    z = 0\n" + block), [])
