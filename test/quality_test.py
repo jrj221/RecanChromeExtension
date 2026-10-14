@@ -47,6 +47,13 @@ class Duplication(unittest.TestCase):
         )
         self.assertEqual(dups(source), [9])
 
+    def test_different_method_calls_are_not_the_same_code(self):
+        source = (
+            "def a(bit, color):\n    while bit.can_move_front():\n        bit.move()\n        bit.paint(color)\n    bit.left()\n    bit.left()\n\n\n"
+            "def b(bit):\n    while not bit.is_on_white():\n        bit.move()\n    bit.right()\n"
+        )
+        self.assertEqual(dups(source), [])
+
     def test_different_functions_are_fine(self):
         source = (
             "def a(x):\n    t = 0\n    for i in range(x):\n        t += i\n    return t\n\n\n"

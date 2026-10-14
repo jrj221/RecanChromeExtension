@@ -260,10 +260,22 @@ _TRIVIAL = re.compile(r"^(?:else|try|finally|return|break|continue|pass|[)\]}]+)
 
 
 def _shape(line: str) -> str:
-    """The line with strings, numbers and names (but not keywords or built-ins) blanked out."""
+    """The line with strings, numbers and variable names blanked out. Keywords, built-ins, and
+    anything that is called or reached through a dot (bit.move(), fill_down(...)) are kept."""
     line = _STRING.sub("S", line)
     line = _NUMBER.sub("N", line)
-    return _NAME.sub(lambda m: m.group(0) if m.group(0) in _KEYWORDS or m.group(0) in ("S", "N") else "I", line)
+    line = re.sub(r"\b(def|class)\s+\w+", r"\1 F", line)  # a function's own name doesn't matter
+
+    def blank(match: re.Match) -> str:
+        word = match.group(0)
+        if word in _KEYWORDS or word in ("S", "N", "F"):
+            return word
+        before, after = line[:match.start()].rstrip(), line[match.end():].lstrip()
+        if before.endswith(".") or after.startswith("("):
+            return word  # methods and called functions are what the code DOES, so they must match
+        return "I"  # a variable: could become a parameter
+
+    return _NAME.sub(blank, line)
 
 
 def _code_lines(source: str) -> list[tuple[int, str, str]]:
