@@ -4,6 +4,10 @@
 
 export const MIN_ACTIVE_SECONDS = 2 * 60;
 
+// Unapproved pastes shorter than this many lines are ignored: not counted, not flagged, not
+// shown. Set to 1 to count every paste.
+export const MIN_PASTED_LINES = 3;
+
 // A pasted snippet can be huge (hundreds of thousands of characters). The viewer shows at most
 // this many characters of each; the real size is still reported.
 export const MAX_SNIPPET_CHARS = 20000;
@@ -135,7 +139,8 @@ export function evaluateSession(session) {
   const idleSeconds = idleMs / 1000;
   const activeSeconds = Math.max(0, totalSeconds - idleSeconds);
 
-  const pastes = (session.annotations || []).filter((a) => a.kind === "unapproved_paste");
+  const pastedLines = (a) => a.line_count ?? String(a.fragment ?? "").split("\n").length;
+  const pastes = (session.annotations || []).filter((a) => a.kind === "unapproved_paste" && pastedLines(a) >= MIN_PASTED_LINES);
   const unapproved = {
     count: pastes.length,
     chars: pastes.reduce((n, a) => n + (a.char_count || 0), 0),
