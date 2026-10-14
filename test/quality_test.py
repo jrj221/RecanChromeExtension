@@ -29,6 +29,19 @@ class Duplication(unittest.TestCase):
         source = "def f():\n" + block + "    z = 0\n" + block
         self.assertEqual(dups(source), [6])
 
+    def test_four_copies_are_one_finding(self):
+        block = "    a = input('a? ')\n    b = input('b? ')\n    print(a, b)\n"
+        findings = [i for i in check_source("def f():\n" + (block + "    z = 0\n") * 4) if i.rule == "duplication"]
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].where, "lines 2-5, 6-9, 10-13 and 14-17 (4 copies)")
+
+    def test_four_copies_with_other_code_between_them(self):
+        block = "    while bit.can_move_front():\n        bit.move()\n        bit.paint('blue')\n"
+        body = "".join(block + f"    bit.turn{k}()\n" for k in range(4))
+        findings = [i for i in check_source("def f(bit):\n" + body) if i.rule == "duplication"]
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].where, "lines 2-4, 6-8, 10-12 and 14-16 (4 copies)")
+
     def test_two_identical_lines_are_fine(self):
         block = "    a = input('a? ')\n    print(a)\n"
         self.assertEqual(dups("def f():\n" + block + "    z = 0\n" + block), [])

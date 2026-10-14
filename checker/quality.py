@@ -319,21 +319,39 @@ def _check_duplication(tree: ast.Module, source: str) -> list[Issue]:
     def covered(first: int, last: int) -> bool:
         return any(first <= b and a <= last for a, b in claimed)  # any overlap
 
-    exact = _runs([c[1] for c in code], MIN_DUPLICATE_LINES)
-    similar = _runs([c[2] for c in code], MIN_SIMILAR_LINES)
-    for i, j, n in sorted(exact, key=lambda r: -r[2]) + sorted(similar, key=lambda r: -r[2]):
-        if covered(j, j + n - 1) or covered(i, i + n - 1):
+    exact_keys = [c[1] for c in code]
+    shape_keys = [c[2] for c in code]
+    runs = [(r, exact_keys) for r in sorted(_runs(exact_keys, MIN_DUPLICATE_LINES), key=lambda r: -r[2])]
+    runs += [(r, shape_keys) for r in sorted(_runs(shape_keys, MIN_SIMILAR_LINES), key=lambda r: -r[2])]
+    def minimum_for(keys: list[str]) -> int:
+        return MIN_DUPLICATE_LINES if keys is exact_keys else MIN_SIMILAR_LINES
+
+    for (i, j, n), keys in runs:
+        if covered(i, i + n - 1) or covered(j, j + n - 1):
             continue
-        identical = all(code[i + k][1] == code[j + k][1] for k in range(n))
+        # A run that is itself the same few lines over and over is reported as those few lines.
+        for unit in range(minimum_for(keys), n // 2 + 1):
+            if n % unit == 0 and keys[i:i + n] == keys[i:i + unit] * (n // unit):
+                n = unit
+                break
+        # Every copy of this code in the file, not just the pair: one finding however many there are.
+        wanted = keys[i:i + n]
+        starts = []
+        for p in range(len(keys) - n + 1):
+            if keys[p:p + n] == wanted and not covered(p, p + n - 1) and not (starts and p < starts[-1] + n):
+                starts.append(p)
+        identical = all(code[p + k][1] == code[i + k][1] for p in starts for k in range(n))
         what = "the same" if identical else "nearly the same (only names or values differ)"
+        spans = [f"{code[p][0]}-{code[p + n - 1][0]}" for p in starts]
+        more = f" ({len(starts)} copies)" if len(starts) > 2 else ""
         issues.append(Issue(
-            "duplication", code[j][0],
-            f"{n} lines here are {what} as the lines starting at line {code[i][0]}; make them one function",
-            snippet=_excerpt(source, code[i][0], code[i + n - 1][0]),
-            other=_excerpt(source, code[j][0], code[j + n - 1][0]),
-            where=f"lines {code[i][0]}-{code[i + n - 1][0]} and {code[j][0]}-{code[j + n - 1][0]}",
+            "duplication", code[starts[1]][0],
+            f"{n} lines here are {what} as the lines starting at line {code[starts[0]][0]}{more}; make them one function",
+            snippet=_excerpt(source, code[starts[0]][0], code[starts[0] + n - 1][0]),
+            other=_excerpt(source, code[starts[1]][0], code[starts[1] + n - 1][0]),
+            where="lines " + ", ".join(spans[:-1]) + " and " + spans[-1] + more,
         ))
-        claimed += [(i, i + n - 1), (j, j + n - 1)]
+        claimed += [(p, p + n - 1) for p in starts]
     return issues
 
 
