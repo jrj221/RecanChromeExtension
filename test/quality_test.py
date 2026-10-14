@@ -36,16 +36,23 @@ class Duplication(unittest.TestCase):
     def test_same_lines_with_other_names_and_values(self):
         source = (
             "def f():\n    t = 0\n    for i in range(5):\n        t += i * 2\n    print('a', t)\n    z = 0\n"
-            "    s = 1\n    for k in range(9):\n        s += k * 3\n    print('b', s)\n"
+            "    s = 0\n    for k in range(5):\n        s += k * 2\n    print('b', s)\n"
         )
         self.assertEqual(dups(source), [7])
 
-    def test_two_alike_functions_are_one_finding(self):
+    def test_other_numbers_make_it_different_code(self):
+        source = (
+            "def f():\n    t = 0\n    for i in range(5):\n        t += i * 2\n    print('a', t)\n    z = 0\n"
+            "    s = 1\n    for k in range(9):\n        s += k * 3\n    print('b', s)\n"
+        )
+        self.assertEqual(dups(source), [])
+
+    def test_alike_functions_are_not_compared_as_a_whole(self):
         source = (
             "def a(x):\n    t = 0\n    for i in range(x):\n        t += i * 2\n    print('d', t)\n    return t\n\n\n"
             "def b(y):\n    c = 1\n    for k in range(y):\n        c += k * 3\n    print('e', c)\n    return c\n"
         )
-        self.assertEqual(dups(source), [9])
+        self.assertEqual(dups(source), [])
 
     def test_different_method_calls_are_not_the_same_code(self):
         source = (

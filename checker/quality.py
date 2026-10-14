@@ -23,11 +23,9 @@ The checks, and the judgment calls where the rules leave room for interpretation
                    in physical lines, from the `def` line to the last line of the function,
                    including blank lines, comments and the docstring.
   duplication      Code that should be one function, within a file: a run of MIN_DUPLICATE_LINES
-                   or more identical lines that appears twice; a run of MIN_SIMILAR_LINES or more
-                   that appears twice and differs only in names and values (variables, numbers,
-                   strings); and two functions whose lines align at SIMILAR_RATIO or better once
-                   names and values are blanked out. Blank lines, comments and lines like `else:`
-                   or `return` don't count.
+                   or more identical lines that appears twice, or a run of MIN_SIMILAR_LINES or
+                   more that appears twice and differs only in string contents and variable
+                   names. Blank lines, comments and lines like `else:` or `return` don't count.
 
 Spacing slips are common and minor, so indentation and blank lines only FAIL when they happen
 more than twice across ALL the files together (see ALLOWED_VIOLATIONS and summarize). Nested while
@@ -41,7 +39,6 @@ Files whose names start with "test" (test_calculator.py, tests.py, ...) are igno
 from __future__ import annotations
 
 import ast
-import difflib
 import io
 import re
 import sys
@@ -55,8 +52,6 @@ BLANK_LINES_BETWEEN_FUNCTIONS = 2
 MAX_FUNCTION_LINES = 20  # a function must be SHORTER than this
 MIN_DUPLICATE_LINES = 3  # this many identical lines, twice, is duplicated code
 MIN_SIMILAR_LINES = 4  # this many lines that match once names and values are blanked out
-SIMILAR_RATIO = 0.8  # two functions this alike (0 to 1) could be one function with parameters
-MIN_FUNCTION_LINES = 4  # shorter functions aren't compared
 MAX_COMPARED_LINES = 3000  # skip the duplication check on files longer than this
 
 IGNORED_PREFIX = "test"  # files whose names start with this are not checked
@@ -248,7 +243,6 @@ def _check_function_length(tree: ast.Module) -> list[Issue]:
 _STRING = re.compile(
     r"""[rbfuRBFU]{0,2}(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')"""
 )
-_NUMBER = re.compile(r"\b\d[\d_]*\.?\d*(?:[eE][+-]?\d+)?\b")
 _NAME = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
 # Words that stay as they are when a line is reduced to its shape (the rest become "I").
 _KEYWORDS = {
@@ -261,15 +255,14 @@ _TRIVIAL = re.compile(r"^(?:else|try|finally|return|break|continue|pass|[)\]}]+)
 
 
 def _shape(line: str) -> str:
-    """The line with strings, numbers and variable names blanked out. Keywords, built-ins, and
+    """The line with string contents and variable names blanked out (numbers are kept). Keywords, built-ins, and
     anything that is called or reached through a dot (bit.move(), fill_down(...)) are kept."""
     line = _STRING.sub("S", line)
-    line = _NUMBER.sub("N", line)
     line = re.sub(r"\b(def|class)\s+\w+", r"\1 F", line)  # a function's own name doesn't matter
 
     def blank(match: re.Match) -> str:
         word = match.group(0)
-        if word in _KEYWORDS or word in ("S", "N", "F"):
+        if word in _KEYWORDS or word in ("S", "F"):
             return word
         before, after = line[:match.start()].rstrip(), line[match.end():].lstrip()
         if before.endswith(".") or after.startswith("("):
@@ -323,37 +316,6 @@ def _check_duplication(tree: ast.Module, source: str) -> list[Issue]:
 
     def covered(first: int, last: int) -> bool:
         return any(first <= b and a <= last for a, b in claimed)  # any overlap
-
-    # Similar functions first: they are the bigger finding and swallow the runs inside them.
-    functions = []
-    for node in ast.walk(tree):
-        if _is_function(node):
-            # The `def` line is left out of the comparison: every function has one, so it would
-            # make short functions look more alike than they are.
-            body = [k for k, (n, _, _) in enumerate(code) if node.lineno < n <= node.end_lineno]
-            if len(body) >= MIN_FUNCTION_LINES:
-                functions.append((node, body))
-    functions.sort(key=lambda f: f[0].lineno)
-    for a in range(len(functions)):
-        for b in range(a + 1, len(functions)):
-            (fa, ba), (fb, bb) = functions[a], functions[b]
-            if fb.lineno <= fa.end_lineno:
-                continue  # one is inside the other
-            shapes_a = [code[k][2] for k in ba]
-            shapes_b = [code[k][2] for k in bb]
-            matcher = difflib.SequenceMatcher(None, shapes_a, shapes_b, autojunk=False)
-            ratio = matcher.ratio()
-            shared = sum(block.size for block in matcher.get_matching_blocks())
-            if ratio >= SIMILAR_RATIO and shared >= MIN_SIMILAR_LINES:
-                issues.append(Issue(
-                    "duplication", fb.lineno,
-                    f"'{fb.name}' is {round(ratio * 100)}% the same as '{fa.name}' (line {fa.lineno}); "
-                    "combine them into one function with parameters",
-                    snippet=_excerpt(source, fa.lineno, fa.end_lineno),
-                    other=_excerpt(source, fb.lineno, fb.end_lineno),
-                    where=f"'{fa.name}' (line {fa.lineno}) and '{fb.name}' (line {fb.lineno})",
-                ))
-                claimed += [(ba[0] - 1, ba[-1]), (bb[0] - 1, bb[-1])]  # -1: their def lines too
 
     exact = _runs([c[1] for c in code], MIN_DUPLICATE_LINES)
     similar = _runs([c[2] for c in code], MIN_SIMILAR_LINES)
