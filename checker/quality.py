@@ -92,7 +92,8 @@ class Issue:
     line: int
     message: str
     severe: bool = False  # fails its check by itself, regardless of the allowance
-    snippet: str = ""  # duplication only: the code that was repeated (one copy)
+    snippet: str = ""  # duplication only: the code that was repeated (the first copy)
+    other: str = ""  # duplication only: the second copy
     where: str = ""  # duplication only: e.g. "lines 4-8 and 14-18"
 
 
@@ -345,6 +346,7 @@ def _check_duplication(tree: ast.Module, source: str) -> list[Issue]:
                     f"'{fb.name}' is {round(ratio * 100)}% the same as '{fa.name}' (line {fa.lineno}); "
                     "combine them into one function with parameters",
                     snippet=_excerpt(source, fa.lineno, fa.end_lineno),
+                    other=_excerpt(source, fb.lineno, fb.end_lineno),
                     where=f"'{fa.name}' (line {fa.lineno}) and '{fb.name}' (line {fb.lineno})",
                 ))
                 claimed += [(ba[0], ba[-1]), (bb[0], bb[-1])]
@@ -360,6 +362,7 @@ def _check_duplication(tree: ast.Module, source: str) -> list[Issue]:
             "duplication", code[j][0],
             f"{n} lines here are {what} as the lines starting at line {code[i][0]}; make them one function",
             snippet=_excerpt(source, code[i][0], code[i + n - 1][0]),
+            other=_excerpt(source, code[j][0], code[j + n - 1][0]),
             where=f"lines {code[i][0]}-{code[i + n - 1][0]} and {code[j][0]}-{code[j + n - 1][0]}",
         ))
         claimed += [(i, i + n - 1), (j, j + n - 1)]
@@ -421,7 +424,7 @@ def summarize(results: list[dict]) -> list[dict]:
                "failed": failed, "files": files if failed else []}
         if rule == "duplication" and failed:  # the repeated code, to show under the check
             row["items"] = [
-                {"file": r["name"], "line": i["line"], "where": i["where"], "snippet": i["snippet"]}
+                {"file": r["name"], "line": i["line"], "where": i["where"], "snippet": i["snippet"], "other": i["other"]}
                 for r in results for i in r["issues"] if i["rule"] == rule
             ]
         rows.append(row)

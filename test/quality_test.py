@@ -73,6 +73,7 @@ class Duplication(unittest.TestCase):
         (item,) = row["items"]  # the repeated code, for the dropdown
         self.assertEqual((item["file"], item["where"]), ("a.py", "lines 2-4 and 6-8"))
         self.assertEqual(item["snippet"], block.replace("    ", "").rstrip("\n"))
+        self.assertEqual(item["other"], item["snippet"])  # both copies, for side by side
 
 
 class Clean(unittest.TestCase):

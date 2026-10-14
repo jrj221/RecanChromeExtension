@@ -230,7 +230,9 @@ function fillBanner() {
         // Duplicated code: a dropdown per repeated snippet.
         for (const item of check.items || []) {
           const dup = el("details", "dup");
-          dup.append(el("summary", "", `${item.file}: ${item.where}`), el("pre", "", item.snippet));
+          const copies = el("div", "copies"); // the two copies, side by side
+          copies.append(el("pre", "", item.snippet), el("pre", "", item.other));
+          dup.append(el("summary", "", `${item.file}: ${item.where}`), copies);
           body.append(dup);
         }
       }
