@@ -3,6 +3,7 @@
 // It runs upstream's recan unmodified; see runner.js. Recordings stay in memory only.
 import { loadPyodide } from "../vendor/pyodide/pyodide.mjs";
 import { evaluateSummaryJson } from "./flags.js";
+import { checkQuality, mountChecker } from "./quality.js";
 import { TA_OPTIONS, generateHtml, generateSummary, mountRecan } from "./runner.js";
 import { loadIndex, loadStarterFiles } from "./starter.js";
 
@@ -18,6 +19,13 @@ const getPython = () =>
     const py = await loadPyodide({ indexURL: chrome.runtime.getURL("vendor/pyodide/") });
     await py.loadPackage(["jinja2", "pyyaml"]);
     await mountRecan(py, readBytes);
+    await mountChecker(py, readBytes);
+    // Load recan's and the checker's code now, so the first analysis doesn't pay for the imports.
+    py.runPython(`
+import sys
+sys.path.insert(0, "/home/pyodide")
+import recan.main, recan.viewer, checker.quality
+`);
     return py;
   })().catch((e) => {
     pythonPromise = undefined; // allow a retry
@@ -29,7 +37,7 @@ const getPython = () =>
 const downloads = new Map();
 function getRecording(url) {
   if (!downloads.has(url)) {
-    if (downloads.size >= 40) downloads.delete(downloads.keys().next().value);
+    if (downloads.size >= 120) downloads.delete(downloads.keys().next().value);
     const promise = (async () => {
       // Presigned URL: the signature is in the query string, so no cookies.
       let res;
@@ -67,6 +75,7 @@ const serial = (job) => {
 
 // A file's contents never change, so its analysis can be reused (key: file id + starter folder).
 const evaluations = new Map();
+const qualityResults = new Map(); // file id -> { name, issues }
 
 async function handle(msg) {
   switch (msg.op) {
@@ -75,6 +84,9 @@ async function handle(msg) {
       return {};
     case "fetch":
       await getRecording(msg.url);
+      return {};
+    case "prefetch": // start downloading while the page is still being drawn; failures are retried later
+      await Promise.all(msg.urls.map((url) => getRecording(url).catch(() => {})));
       return {};
     case "summary": {
       const key = `${msg.fileId}|${msg.folderId ?? ""}`;
@@ -88,6 +100,18 @@ async function handle(msg) {
         evaluations.set(key, evaluation);
       }
       return { evaluation: evaluations.get(key) };
+    }
+    case "quality": {
+      // The submission's .py files. A file's contents never change, so results are cached by file id.
+      const missing = msg.files.filter((f) => !qualityResults.has(f.id));
+      if (missing.length) {
+        const sources = await Promise.all(
+          missing.map(async (f) => ({ name: f.name, text: new TextDecoder("utf-8").decode(await getRecording(f.url)) })),
+        );
+        const checked = await serial(async () => checkQuality(await getPython(), sources));
+        missing.forEach((f, i) => qualityResults.set(f.id, checked[i]));
+      }
+      return { results: msg.files.map((f) => ({ id: f.id, ...qualityResults.get(f.id) })) };
     }
     case "view": {
       const [bytes, starterCode] = await Promise.all([getRecording(msg.url), starterFiles(msg.folderId)]);

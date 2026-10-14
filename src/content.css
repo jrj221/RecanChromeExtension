@@ -17,6 +17,8 @@
 .webrecan-info::before { content: ""; position: absolute; inset: -1.5px; background-color: var(--tone);
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Cpath d='M6.7 6.9c0-1.5 1.1-2.4 2.4-2.4s2.4.9 2.4 2.1c0 1.7-2.4 1.9-2.4 3.7' fill='none' stroke='%23000' stroke-width='1.9' stroke-linecap='round'/%3E%3Ccircle cx='9.1' cy='13.4' r='1.15'/%3E%3C/svg%3E") center / 18px 18px no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Cpath d='M6.7 6.9c0-1.5 1.1-2.4 2.4-2.4s2.4.9 2.4 2.1c0 1.7-2.4 1.9-2.4 3.7' fill='none' stroke='%23000' stroke-width='1.9' stroke-linecap='round'/%3E%3Ccircle cx='9.1' cy='13.4' r='1.15'/%3E%3C/svg%3E") center / 18px 18px no-repeat; }
 .webrecan-info:hover { background: var(--tint); }
+/* Still being analyzed: dashed and faded, so it doesn't look stuck. */
+.webrecan-ctl[data-state="pending"] .webrecan-info { border-style: dashed; opacity: .55; }
 .webrecan-info[hidden] { display: none; }
 
 .webrecan-pop { position: fixed; z-index: 100000; width: 330px; max-width: calc(100vw - 16px); box-sizing: border-box;
@@ -56,3 +58,23 @@
 #webrecan-panel div { display: flex; gap: 8px; justify-content: space-between; align-items: center; margin-top: 6px; }
 #webrecan-panel span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #webrecan-panel .webrecan-ctl { margin: 0; overflow: visible; }
+
+/* The code-quality box at the top of the page: small and green when every check passes, a
+   red warning block otherwise (click it to see which files failed which check). */
+.webrecan-banner { --edge: #dadce0; --fill: #f8f9fa; --ink: #5f6368; display: block; width: fit-content; max-width: calc(100% - 32px);
+  margin: 8px 16px; border: 1.5px solid var(--edge); border-radius: 6px; background: var(--fill); color: var(--ink);
+  font: 13px/1.45 system-ui, sans-serif; }
+.webrecan-banner.is-ok { --edge: #34a853; --fill: #e6f4ea; --ink: #137333; }
+.webrecan-banner.is-bad { --edge: #d93025; --fill: #fce8e6; --ink: #a50e0e; }
+.webrecan-banner summary { padding: 5px 12px; font-weight: 600; cursor: pointer; list-style: none; }
+.webrecan-banner summary::marker, .webrecan-banner summary::-webkit-details-marker { display: none; content: ""; }
+.webrecan-banner.is-ok summary, .webrecan-banner.is-pending summary { cursor: default; }
+.webrecan-banner:not(.is-ok):not(.is-pending) summary::before { content: "\25B8"; display: inline-block; width: 1em; }
+.webrecan-banner[open]:not(.is-ok):not(.is-pending) summary::before { content: "\25BE"; }
+.webrecan-banner .body { padding: 0 14px 8px; color: #202124; font-weight: 400; }
+.webrecan-banner .check { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; margin: 3px 0; color: #137333; }
+.webrecan-banner .check .mark { width: 1em; font-weight: 700; }
+.webrecan-banner .check.fail { color: #a50e0e; }
+.webrecan-banner .check .label { color: #202124; }
+.webrecan-banner .check.fail .label { font-weight: 600; }
+.webrecan-banner .check .files { font: 12px ui-monospace, Menlo, monospace; color: #a50e0e; }

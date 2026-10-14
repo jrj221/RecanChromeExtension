@@ -4,14 +4,20 @@
 /** "color_bars.recording.jsonl.gz" -> "color_bars" (the name before the first dot, as recan does). */
 export const stemOf = (name) => name.split("/").pop().split(".")[0];
 
-/** The starter index, or null when the optional script hasn't been run. */
-export async function loadIndex() {
-  try {
-    const res = await fetch(chrome.runtime.getURL("starter-code.json"));
-    return res.ok ? await res.json() : null;
-  } catch {
-    return null;
-  }
+/**
+ * The starter index, or null when the optional script hasn't been run. Read once per session:
+ * it only changes when the script is re-run, and the extension is reloaded after that.
+ */
+let indexPromise;
+export function loadIndex() {
+  return (indexPromise ??= (async () => {
+    try {
+      const res = await fetch(chrome.runtime.getURL("starter-code.json"));
+      return res.ok ? await res.json() : null;
+    } catch {
+      return null;
+    }
+  })());
 }
 
 /**

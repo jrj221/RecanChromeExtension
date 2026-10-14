@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "WebRecan",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "View BYU recan code recordings directly from Gradescope.",
   "host_permissions": [
     "https://www.gradescope.com/*",

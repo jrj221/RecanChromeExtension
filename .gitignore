@@ -4,3 +4,5 @@ upstream/
 recan-files.json
 starter-code-source/
 starter-code.json
+__pycache__/
+*.pyc

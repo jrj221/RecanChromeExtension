@@ -9,6 +9,7 @@
 // button right after it. Anything we cannot place falls back to a small panel.
 
 const GZ = /\.gz(\?|$)/i;
+const PY = /\.py$/i;
 const MARK = "data-webrecan";
 const MIN_ACTIVE_SECONDS = 5 * 60; // keep in sync with flags.js (content scripts can't import modules)
 
@@ -18,22 +19,23 @@ const EASTER_EGG_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
 
 // ---- reading the page ----
 
-/** { recordings } from the SubmissionGrader props found in `root` (a Document). */
+/** { recordings, sources } (the .gz recordings and the .py files) from the SubmissionGrader props in `root`. */
 function parsePage(root) {
   // The submission page embeds its files (with presigned S3 URLs) as React props.
   const el = root.querySelector('[data-react-class="SubmissionGrader"]');
-  if (!el) return { recordings: [] };
+  if (!el) return { recordings: [], sources: [] };
   let props;
   try {
     props = JSON.parse(el.getAttribute("data-react-props"));
   } catch {
-    return { recordings: [] };
+    return { recordings: [], sources: [] };
   }
+  const files = (props.files || []).filter((f) => f.url || f.file?.url);
+  // Every student's recording has the same name, so identify files by id, not name.
+  const describe = (f) => ({ id: String(f.id ?? f.uuid ?? f.url ?? f.file.url), url: f.url || f.file.url, name: f.path });
   return {
-    recordings: (props.files || [])
-      .filter((f) => GZ.test(f.path || "") && (f.url || f.file?.url))
-      // Every student's recording has the same name, so identify files by id, not name.
-      .map((f) => ({ id: String(f.id ?? f.uuid ?? f.url ?? f.file.url), url: f.url || f.file.url, name: f.path })),
+    recordings: files.filter((f) => GZ.test(f.path || "")).map(describe),
+    sources: files.filter((f) => PY.test(f.path || "")).map(describe),
   };
 }
 
@@ -41,7 +43,7 @@ function parsePage(root) {
 // page. The props in the DOM then still belong to the submission we first loaded, so
 // for any other URL we fetch that page and read its props instead.
 const loadedPath = location.pathname;
-const pagesByPath = new Map(); // pathname -> { recordings }, for pages other than loadedPath
+const pagesByPath = new Map(); // pathname -> { recordings, sources }, for pages other than loadedPath
 
 function currentPage() {
   const path = location.pathname;
@@ -50,7 +52,7 @@ function currentPage() {
   if (path === loadedPath) parsed = parsePage(document);
   else {
     if (!pagesByPath.has(path)) {
-      pagesByPath.set(path, { recordings: [] }); // until the fetch finishes (or if it fails)
+      pagesByPath.set(path, { recordings: [], sources: [] }); // until the fetch finishes (or if it fails)
       fetch(location.pathname + location.search, { credentials: "include" })
         .then((res) => (res.ok ? res.text() : Promise.reject(new Error(`HTTP ${res.status}`))))
         .then((html) => {
@@ -67,7 +69,7 @@ function currentPage() {
 
 // ---- talking to the extension ----
 
-let page = { recordings: [], assignmentId: "", recordingNames: [] }; // the page last rendered
+let page = { recordings: [], sources: [], assignmentId: "", recordingNames: [] }; // the page last rendered
 
 const analyses = new Map(); // recording id -> { status: "pending" | "done" | "error", evaluation, starter, error }
 const starterInfos = new Map(); // assignment id + recording names -> { enabled, folderId, source, folders } | "pending"
@@ -106,6 +108,110 @@ async function chooseStarterFolder(folderId) {
   analyses.clear();
   starterInfos.clear();
   render();
+}
+
+const el = (tag, className, text) => {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+};
+
+// ---- code quality banner ----
+//
+// A small box at the top of the page: green when every .py file in the submission passes the
+// checks in checker/quality.py, a warning block otherwise. Clicking the warning shows each check
+// and which files failed it (not why; run checker/quality.py for the details). This is separate
+// from recan.
+
+// The checks, in the order shown, keyed by the rule names checker/quality.py reports
+// (keep the labels in step with the limits at the top of that file).
+const CHECKS = [
+  ["indentation", "Indentation"],
+  ["blank-lines", "2 blank lines between functions"],
+  ["nested-while", "No nested while loops"],
+  ["function-length", "Functions shorter than 20 lines"],
+];
+const UNREADABLE = ["syntax", "Python can't read the file"]; // only shown if a file has this problem
+
+let quality = { key: "", status: "none" }; // status: "none" | "pending" | "done" | "error"
+let banner = null;
+
+const prefetched = new Set();
+/** Start downloading recordings right away (while the page draws its file list); analysis uses them later. */
+function prefetchRecordings(recordings) {
+  const urls = recordings.map((r) => r.url).filter((url) => !prefetched.has(url));
+  if (!urls.length) return;
+  urls.forEach((url) => prefetched.add(url));
+  send({ type: "prefetch", urls }).catch(() => {});
+}
+
+function requestQuality(sources) {
+  const key = sources.map((s) => s.id).join(",");
+  if (key === quality.key) return;
+  quality = { key, status: sources.length ? "pending" : "none" };
+  if (!sources.length) return;
+  send({ type: "quality", files: sources.map(({ id, url, name }) => ({ id, url, name })) })
+    .then((res) => key === quality.key && (quality = { key, status: "done", results: res.results }))
+    .catch((e) => key === quality.key && (quality = { key, status: "error", error: e.message }))
+    .finally(paintBanner);
+}
+
+function paintBanner() {
+  if (quality.status === "none") {
+    banner?.remove();
+    banner = null;
+    return;
+  }
+  if (!banner) {
+    banner = document.createElement("details");
+    created.add(banner);
+    banner.className = "webrecan-banner";
+  }
+  // Sit just above the page's content (not inside it, so the page's own redraws don't remove it).
+  if (!banner.isConnected) {
+    const main = document.getElementById("main-content");
+    if (main?.parentNode) main.parentNode.insertBefore(banner, main);
+    else document.body.prepend(banner);
+  }
+  const signature = JSON.stringify(quality);
+  if (banner.dataset.sig === signature) return; // nothing changed; don't touch the DOM
+  banner.dataset.sig = signature;
+  fillBanner();
+}
+
+function fillBanner() {
+  const summary = el("summary");
+  const body = el("div", "body");
+  banner.classList.remove("is-ok", "is-bad", "is-pending");
+  banner.open = false;
+
+  if (quality.status === "pending") {
+    banner.classList.add("is-pending");
+    summary.textContent = "Checking code quality…";
+  } else if (quality.status === "error") {
+    banner.classList.add("is-pending");
+    summary.textContent = `Couldn't check code quality: ${quality.error}`;
+  } else {
+    // For each check, the files that failed it.
+    const failures = (rule) => quality.results.filter((f) => f.issues.some((i) => i.rule === rule)).map((f) => f.name);
+    const rows = [...CHECKS, ...(failures(UNREADABLE[0]).length ? [UNREADABLE] : [])];
+    if (rows.every(([rule]) => !failures(rule).length)) {
+      banner.classList.add("is-ok");
+      summary.textContent = "✓ Code quality: all checks passed";
+    } else {
+      banner.classList.add("is-bad");
+      summary.textContent = "⚠ Code quality: some checks failed";
+      for (const [rule, label] of rows) {
+        const failed = failures(rule);
+        const row = el("div", failed.length ? "check fail" : "check");
+        row.append(el("span", "mark", failed.length ? "✗" : "✓"), el("span", "label", label));
+        if (failed.length) row.append(el("span", "files", failed.join(", ")));
+        body.append(row);
+      }
+    }
+  }
+  banner.replaceChildren(summary, body);
 }
 
 // ---- the buttons ----
@@ -169,6 +275,7 @@ function stateOf(rec) {
 
 function paint(ctl) {
   if (!ctl.recording) return; // a stale copy; render() removes these
+  ctl.dataset.state = analyses.get(ctl.recording.id)?.status ?? "pending"; // pending | done | error
   const state = stateOf(ctl.recording);
   const [run, info] = ctl.children;
   // The wrapper's classes set the color (text + border) of both buttons.
@@ -221,13 +328,6 @@ function togglePopover(ctl) {
   document.body.appendChild(pop);
   fillPopover(ctl);
 }
-
-const el = (tag, className, text) => {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-};
 
 function duration(seconds) {
   const total = Math.round(seconds);
@@ -469,7 +569,7 @@ let seenAt = Date.now();
 
 function render() {
   // Remove lifeless copies of our elements (see `created`); live ones are re-added below.
-  for (const node of document.querySelectorAll(".webrecan-ctl, .webrecan-pop, #webrecan-panel")) {
+  for (const node of document.querySelectorAll(".webrecan-ctl, .webrecan-pop, .webrecan-banner, #webrecan-panel")) {
     if (!created.has(node)) node.remove();
   }
   page = currentPage();
@@ -483,6 +583,8 @@ function render() {
   }
 
   if (recordings.length) requestStarterInfo();
+  prefetchRecordings(recordings);
+  requestQuality(page.sources);
 
   const placed = [];
   const unplaced = [];
@@ -509,11 +611,12 @@ function render() {
   for (const rec of [...placed, ...fallback]) requestAnalysis(rec);
   renderFallback(fallback);
   paintAll();
+  paintBanner();
 }
 
 // React redraws the list, which can drop our buttons, so re-check after changes
 // (ignoring changes we made ourselves).
-const ours = ".webrecan-ctl, .webrecan-pop, #webrecan-panel";
+const ours = ".webrecan-ctl, .webrecan-pop, .webrecan-banner, #webrecan-panel";
 let timer;
 new MutationObserver((mutations) => {
   const foreign = mutations.some((m) => !(m.target.nodeType === 1 ? m.target : m.target.parentElement)?.closest(ours));
