@@ -10,7 +10,7 @@
 
 const GZ = /\.gz(\?|$)/i;
 const MARK = "data-webrecan";
-const MIN_ACTIVE_SECONDS = 5 * 60; // keep in sync with flags.js (content scripts can't import modules)
+const MIN_ACTIVE_SECONDS = 2 * 60; // keep in sync with flags.js (content scripts can't import modules)
 
 // Easter egg: this fraction of clicks goes somewhere else instead.
 const EASTER_EGG_ODDS = 0.01;
@@ -386,6 +386,9 @@ let popSide = "right"; // which side of the "?" button the cards open on
  * The info card opens beside the "?" button (never over it), level with it, on whichever side
  * has room for the card plus the dropdown card that can open next to it.
  */
+/** How wide the viewer can be: its full width, or less if the window is narrow. */
+const viewerWidth = (cardWidth) => Math.max(MIN_SNIPPET_WIDTH, Math.min(SNIPPET_WIDTH, window.innerWidth - cardWidth - 3 * GAP));
+
 function positionPopover(ctl) {
   const anchor = ctl.querySelector(".webrecan-info").getBoundingClientRect();
   const width = pop.offsetWidth;
@@ -395,10 +398,16 @@ function positionPopover(ctl) {
   // The right is preferred: the pasted-code viewer opens to the right of this card. Go left only when
   // the right has no room even for a narrow viewer and the left does.
   popSide = roomRight >= need ? "right" : roomLeft >= need ? "left" : roomRight >= roomLeft ? "right" : "left";
-  const left = popSide === "right" ? anchor.right + GAP : anchor.left - GAP - width;
+  let left = popSide === "right" ? anchor.right + GAP : anchor.left - GAP - width;
+  if (snippetView) {
+    // The viewer opens beside this card and needs its full width, so move this card over to make room
+    // (it may end up over the button and the file list; it goes back when the viewer closes).
+    const room = viewerWidth(width) + GAP;
+    left = popSide === "right" ? Math.min(left, window.innerWidth - GAP - room - width) : Math.max(left, GAP + room);
+  }
   pop.style.left = `${Math.max(GAP, Math.min(left, window.innerWidth - width - GAP))}px`;
-  // Level with the button, pulled up only if it would run off the bottom of the screen. The
-  // card is beside the button, so it never covers it, wherever the button is on the page.
+  // Level with the button, pulled up only if it would run off the bottom of the screen. Beside the
+  // button, so it doesn't cover it, unless the viewer is open and has pushed it over.
   pop.style.top = `${Math.max(GAP, Math.min(anchor.top, window.innerHeight - pop.offsetHeight - GAP))}px`;
 }
 
@@ -431,12 +440,15 @@ let snippetView = null; // { recId, index } while the viewer is open
 function showSnippet(ctl) {
   closeList(); // the dropdown and the viewer share the space beside the card
   snippetView = { recId: ctl.recording.id, index: 0 };
+  positionPopover(ctl); // make room: the card moves over, then the viewer is placed beside it
   renderSnippetCard();
 }
 
 function closeSnippet() {
+  const wasOpen = snippetView !== null;
   snippetView = null;
   pop?.querySelector(".webrecan-snip")?.remove();
+  if (wasOpen && popoverFor?.isConnected) positionPopover(popoverFor); // back beside the ? button
 }
 
 function stepSnippet(delta) {
@@ -481,15 +493,10 @@ function renderSnippetCard() {
   nav.append(button("✕", "Close", closeSnippet));
   head.append(nav);
 
-  const lines = `${snippet.lines.toLocaleString()} line${snippet.lines === 1 ? "" : "s"}`;
-  const when = snippet.atSeconds === null ? "" : ` · ${duration(snippet.atSeconds)} into the recording`;
   const { view, firstHighlight } = codeView(snippet);
-  const parts = [
-    head,
-    el("div", "snip-meta", `${snippet.chars.toLocaleString()} characters pasted · ${lines}${when}`),
-    el("div", "snip-meta", snippet.file ? "The whole file right after the paste, with the pasted code highlighted." : "The rest of the file can't be rebuilt from this recording, so only the pasted code is shown."),
-    view,
-  ];
+  const parts = [head, view];
+  // Notes only when something is unusual: the file couldn't be rebuilt, or the paste was cut off.
+  if (!snippet.file) parts.push(el("div", "snip-note", "The rest of the file can't be rebuilt from this recording, so only the pasted code is shown."));
   if (snippet.truncated && !snippet.file) {
     parts.push(el("div", "snip-note", `Showing the first ${snippet.text.length.toLocaleString()} of ${snippet.chars.toLocaleString()} characters.`));
   }
@@ -521,21 +528,13 @@ function codeView(snippet) {
     const lineEnd = lineStart + line.length;
     const row = el("div", "snip-line");
     const code = el("span", "snip-text");
-    const from = Math.max(start, lineStart);
-    const to = Math.min(end, lineEnd);
-    const covered = (from < to || (!line.length && start <= lineStart && end > lineStart)) && from <= to;
-    if (covered) {
-      if (from <= lineStart && to >= lineEnd) {
-        row.classList.add("hl"); // the whole line is pasted code
-        code.textContent = line;
-      } else {
-        code.append(line.slice(0, from - lineStart), el("mark", "", line.slice(from - lineStart, to - lineStart)), line.slice(to - lineStart));
-        row.classList.add("hl-part");
-      }
+    // Any line the paste touches gets the normal highlight (a partly pasted line isn't singled out).
+    const touched = Math.max(start, lineStart) < Math.min(end, lineEnd) || (!line.length && start <= lineStart && end > lineStart);
+    if (touched) {
+      row.classList.add("hl");
       firstHighlight ??= row;
-    } else {
-      code.textContent = line;
     }
+    code.textContent = line;
     row.append(el("span", "snip-num", String(firstLine + i)), code);
     view.append(row);
     lineStart = lineEnd + 1;

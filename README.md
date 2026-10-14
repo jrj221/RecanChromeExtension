@@ -8,7 +8,7 @@ It's the same as downloading the recording and running
 or the file left behind.
 
 It also checks every recording when the page opens. A button turns **red** when the recording has under
-5 minutes of non-idle time, has unapproved pastes, or doesn't start with the assignment's starter code, and an
+2 minutes of non-idle time, has unapproved pastes, or doesn't start with the assignment's starter code, and an
 **?** button next to every recording shows the details, and says why when it's red. See [When does a Run Recan button turn red?](#when-does-a-run-recan-button-turn-red)
 
 This repo contains only the extension. It does not contain recan itself. See the `Install` section for more info.
@@ -150,7 +150,7 @@ starter-code-source/  starter-code.json   from the optional starter-code script 
 
 When the recording has any of these (each recording is checked on its own):
 
-- **Under 5 minutes of non-idle time.** Non-idle time is the recording's total length minus its idle time, using
+- **Under 2 minutes of non-idle time.** Non-idle time is the recording's total length minus its idle time, using
   recan's own definition: time with no activity for over 5 seconds, plus time the editor wasn't focused. This is the same
   idle time the player skips with its "Skip idle" option.
 - **Any unapproved pastes.** Large insertions that aren't an IDE action, text copied from earlier in the student's
@@ -158,8 +158,8 @@ When the recording has any of these (each recording is checked on its own):
 - **A starter-code mismatch.** The recording doesn't begin with the assignment's starter code. This is only checked if
   you set up [the optional starter-code step](#optional-starter-code-checks).
 
-Everything is worked out by recan itself (`recan summary --json`); the extension only applies the 5 minute rule and
-counts the results. The 5 minutes is `MIN_ACTIVE_SECONDS` in `src/flags.js` (and `src/content.js`, which can't share
+Everything is worked out by recan itself (`recan summary --json`); the extension only applies the 2 minute rule and
+counts the results. The 2 minutes is `MIN_ACTIVE_SECONDS` in `src/flags.js` (and `src/content.js`, which can't share
 modules with it).
 
 ---
@@ -182,12 +182,11 @@ When the optional step is set up it also has a **picker** for which assignment's
 
 ### How do I see the pasted code?
 
-Next to **Unapproved pastes** in the **?** card, click **Show**. A second card opens to the **right** of it (the **?** card
-itself opens to the right of the **?** button whenever there's room) showing **the whole file as it was at the end of that
-paste**, with line numbers and the pasted code **highlighted**, scrolled so the paste is in view:
+Next to **Unapproved pastes** in the **?** card, click **Show**. A second card opens to the **right** of it showing **the whole
+file as it was at the end of that paste**, with line numbers and the pasted code **highlighted** (any line the paste touches is
+highlighted whole), scrolled so the paste is in view. It's wide, so the **?** card slides over to the left to make room (it can
+end up over the button and the file list); closing the viewer puts it back beside the button.
 
-- A line under the heading gives the paste's size and when in the recording it happened ("74 characters pasted · 9 lines ·
-  3m 10s into the recording").
 - The file is rebuilt from the recording's edits (recan's `summary --json` already includes them), so it shows exactly what
   the student had at that moment. If the IDE re-indented the paste a few milliseconds later, you see the re-indented text,
   which is also what recan counts as the paste.
@@ -195,11 +194,11 @@ paste**, with line numbers and the pasted code **highlighted**, scrolled so the 
   step through them, in order. The file shown is the file *at that paste*, so an earlier paste appears as plain context and
   a later one isn't there yet. The **Left** and **Right** arrow keys do the same (ignored while you're typing in a page field).
 - Very large files are cut to a window of 100,000 characters around the paste (with the real line numbers). If a recording
-  doesn't carry enough to rebuild the file, the card says so and shows just the pasted code.
-- **Escape**, or the **✕**, closes the card (a second Escape closes the **?** card). Clicking **Show** again also closes it.
+  doesn't carry enough to rebuild the file, a short note says so and the card shows just the pasted code.
+- **Escape**, or the **✕**, closes the viewer (a second Escape closes the **?** card). Clicking **Show** again also closes it.
   Opening the starter-code dropdown closes it too, since they share the space beside the **?** card.
-- If the window is too narrow for the viewer on the right, it narrows to fit; only if the **?** button is at the far right
-  of the window do the cards open on the left instead.
+- In a narrow window the viewer narrows to fit, and the **?** card moves as far over as it needs. If the **?** button is at the far
+  right of the window, the cards open on the left instead (the **?** card then slides right to make room).
 
 The pasted code is always shown as plain text, never run. These are the same pastes recan counts as unapproved
 (`recan summary --json`), not a separate detection.

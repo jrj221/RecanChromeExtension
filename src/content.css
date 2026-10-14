@@ -73,14 +73,12 @@
   color: #1a73e8; font: 600 15px/1 system-ui, sans-serif; cursor: pointer; }
 .webrecan-snip .snip-btn:hover:not(:disabled) { background: #e8f0fe; }
 .webrecan-snip .snip-btn:disabled { border-color: #dadce0; color: #bdc1c6; cursor: default; }
-.webrecan-snip .snip-meta { margin: 4px 0 4px; color: #5f6368; font-size: 12px; }
 .webrecan-snip .snip-code { flex: 1; min-height: 0; margin: 0; padding: 6px 0; overflow: auto; background: #f8f9fa; border: 1px solid #e8eaed;
   border-radius: 6px; font: 12px/1.55 ui-monospace, Menlo, Consolas, monospace; tab-size: 4; }
 .webrecan-snip .snip-line { display: flex; min-width: max-content; }
 .webrecan-snip .snip-num { flex: none; width: 3.4em; padding-right: 10px; text-align: right; color: #9aa0a6; user-select: none; }
 .webrecan-snip .snip-text { flex: 1; white-space: pre; padding-right: 12px; }
 .webrecan-snip .snip-text:empty::before { content: " "; }
-.webrecan-snip .snip-line.hl, .webrecan-snip .snip-line.hl-part { background: #fff6d6; box-shadow: inset 3px 0 0 #f9ab00; }
-.webrecan-snip .snip-line.hl .snip-num, .webrecan-snip .snip-line.hl-part .snip-num { color: #b06000; }
-.webrecan-snip mark { background: #ffe08a; color: inherit; }
+.webrecan-snip .snip-line.hl { background: #fff6d6; box-shadow: inset 3px 0 0 #f9ab00; }
+.webrecan-snip .snip-line.hl .snip-num { color: #b06000; }
 .webrecan-snip .snip-note { margin-top: 6px; color: #5f6368; font-size: 12px; }

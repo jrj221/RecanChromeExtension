@@ -2,7 +2,7 @@
 // into the things the extension flags. Idle time is defined exactly like recan's player
 // (player.js mergedIdleIntervals): the union of "idle gap" and "unfocused" intervals.
 
-export const MIN_ACTIVE_SECONDS = 5 * 60;
+export const MIN_ACTIVE_SECONDS = 2 * 60;
 
 // A pasted snippet can be huge (hundreds of thousands of characters). The viewer shows at most
 // this many characters of each; the real size is still reported.
