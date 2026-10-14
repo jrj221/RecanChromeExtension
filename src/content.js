@@ -164,8 +164,11 @@ function paintBanner() {
     created.add(banner);
     banner.className = "webrecan-banner";
   }
-  // Sit just above the page's content (not inside it, so the page's own redraws don't remove it).
-  if (!banner.isConnected) {
+  // Pin it to the top of the inner (scrolling) file pane so it scrolls with the file, not the page.
+  const pane = findFilePane();
+  if (pane) {
+    if (banner.parentNode !== pane || pane.firstChild !== banner) pane.prepend(banner);
+  } else if (!banner.isConnected) {
     const main = document.getElementById("main-content");
     if (main?.parentNode) main.parentNode.insertBefore(banner, main);
     else document.body.prepend(banner);
@@ -174,6 +177,16 @@ function paintBanner() {
   if (banner.dataset.sig === signature) return; // nothing changed; don't touch the DOM
   banner.dataset.sig = signature;
   fillBanner();
+}
+
+/** The nearest scrolling ancestor of our recording buttons (the file pane), if there is one. */
+function findFilePane() {
+  const anchor = document.querySelector(".webrecan-ctl");
+  for (let node = anchor?.parentElement; node && node !== document.body; node = node.parentElement) {
+    const overflow = getComputedStyle(node).overflowY;
+    if (overflow === "auto" || overflow === "scroll") return node;
+  }
+  return null;
 }
 
 function fillBanner() {
@@ -196,10 +209,10 @@ function fillBanner() {
     } else {
       banner.classList.add("is-bad");
       summary.textContent = "⚠ Code quality: some checks failed";
-      for (const check of quality.checks) {
-        const row = el("div", check.failed ? "check fail" : "check");
-        row.append(el("span", "mark", check.failed ? "✗" : "✓"), el("span", "label", check.label));
-        if (check.failed) row.append(el("span", "files", check.files.join(", ")));
+      banner.open = true; // failures are shown right away
+      for (const check of quality.checks.filter((c) => c.failed)) {
+        const row = el("div", "check fail");
+        row.append(el("span", "mark", "✗"), el("span", "label", check.label), el("span", "files", check.files.join(", ")));
         body.append(row);
       }
     }
