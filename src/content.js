@@ -164,10 +164,10 @@ function paintBanner() {
     created.add(banner);
     banner.className = "webrecan-banner";
   }
-  // Pin it to the top of the inner (scrolling) file pane so it scrolls with the file, not the page.
-  const pane = findFilePane();
-  if (pane) {
-    if (banner.parentNode !== pane || pane.firstChild !== banner) pane.prepend(banner);
+  // Sit above the first file so it scrolls with the files, not the page.
+  const spot = bannerSpot();
+  if (spot) {
+    if (banner.parentNode !== spot.parent || banner.nextSibling !== spot.before) spot.parent.insertBefore(banner, spot.before);
   } else if (!banner.isConnected) {
     const main = document.getElementById("main-content");
     if (main?.parentNode) main.parentNode.insertBefore(banner, main);
@@ -179,12 +179,18 @@ function paintBanner() {
   fillBanner();
 }
 
-/** The nearest scrolling ancestor of our recording buttons (the file pane), if there is one. */
-function findFilePane() {
+/** Where the banner goes: just above the first file shown in the file viewer, else the top of the file pane. */
+const FILE_VIEW = '[class*="FileViewer" i], [class*="CodeViewer" i], [class*="code-viewer" i], .submissionFileViewer, pre';
+
+function bannerSpot() {
+  const first = [...document.querySelectorAll(FILE_VIEW)].find(
+    (node) => !node.closest(".webrecan-ctl, .webrecan-pop, .webrecan-banner, #webrecan-panel"),
+  );
+  if (first?.parentNode) return { parent: first.parentNode, before: first };
   const anchor = document.querySelector(".webrecan-ctl");
   for (let node = anchor?.parentElement; node && node !== document.body; node = node.parentElement) {
     const overflow = getComputedStyle(node).overflowY;
-    if (overflow === "auto" || overflow === "scroll") return node;
+    if (overflow === "auto" || overflow === "scroll") return { parent: node, before: node.firstChild };
   }
   return null;
 }
