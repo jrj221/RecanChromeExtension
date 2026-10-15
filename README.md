@@ -246,8 +246,7 @@ When the optional step is set up it also has a **picker** for which assignment's
 
 It opens by itself. When a recording has at least one unapproved paste, opening its **?** card also opens a second card, the
 paste viewer, to the **right** of it. (If the analysis isn't finished yet when you open the **?** card, the viewer opens the moment
-it is.) It shows **the whole file as it was at the end of that paste**, with line numbers and the pasted code **highlighted** (any
-line the paste touches is highlighted whole), scrolled so the paste is in view. It's wide, so the **?** card slides over to the
+it is.) It shows **the whole file as it was at the end of that paste**, with line numbers and the pasted code **highlighted** (a line the paste fully covers is highlighted whole; on a line it only partly covers, just the pasted characters are), scrolled so the paste is in view. It's wide, so the **?** card slides over to the
 left to make room (it can end up over the button and the file list).
 
 - The button next to **Unapproved pastes** says **Hide** while the viewer is open and **Show** when it's closed. Hiding it
