@@ -3,7 +3,7 @@
 Independent of recan: this imports nothing but the standard library, and nothing in recan
 uses it. It can be run on its own from a terminal:
 
-    python3 checker/quality.py <file-or-folder> [more ...]
+    python3 checker/quality.py [--json] <file-or-folder> [more ...]
 
 and the Chrome extension runs the same code in its Python session (see src/quality.js).
 
@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import ast
 import io
+import json
 import re
 import sys
 import textwrap
@@ -475,12 +476,28 @@ def _python_files(paths: list[str]) -> list[Path]:
     return found
 
 
+def _print_json(files: list[Path]) -> int:
+    """Machine-readable output for tools (the PyCharm plugin): the check rows and every file's issues."""
+    results = [
+        {"name": str(path), "issues": [asdict(i) for i in check_source(path.read_text(encoding="utf-8", errors="replace"))]}
+        for path in files
+        if not is_ignored(path.name)
+    ]
+    rows = summarize(results)
+    print(json.dumps({"checks": rows, "files": results}))
+    return 0
+
+
 def main(argv: list[str]) -> int:
+    as_json = "--json" in argv
+    argv = [a for a in argv if a != "--json"]
     if not argv:
-        print("usage: python3 checker/quality.py <file-or-folder> [more ...]")
+        print("usage: python3 checker/quality.py [--json] <file-or-folder> [more ...]")
         return 2
     total = 0
     files = _python_files(argv)
+    if as_json:
+        return _print_json(files)
     results = []
     for path in files:
         issues = check_source(path.read_text(encoding="utf-8", errors="replace"))
