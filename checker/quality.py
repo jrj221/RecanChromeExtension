@@ -20,8 +20,8 @@ The checks, and the judgment calls where the rules leave room for interpretation
   nested-while     A `while` loop may not contain another `while` loop (at any depth, through
                    if/for/try). A nested function or class starts fresh.
   function-length  Every function must be shorter than MAX_FUNCTION_LINES. The length is counted
-                   in physical lines, from the `def` line to the last line of the function,
-                   including blank lines, comments and the docstring.
+                   in lines of code, from the `def` line to the end of the function. Blank lines,
+                   comment lines and the docstring are not counted.
   duplication      Code that should be one function, within a file: a run of MIN_DUPLICATE_LINES
                    or more identical lines that appears twice, or a run of MIN_SIMILAR_LINES or
                    more that appears twice and differs only in string contents, numbers and
@@ -225,11 +225,25 @@ def _check_nested_while(tree: ast.Module) -> list[Issue]:
 
 # ---- function length ----
 
-def _check_function_length(tree: ast.Module) -> list[Issue]:
+def _code_line_count(node: ast.AST, lines: list[str]) -> int:
+    """Lines of the function that carry code: not blank, not a comment, not the docstring."""
+    skip: set[int] = set()
+    first = node.body[0]
+    if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
+        skip = set(range(first.lineno, first.end_lineno + 1))
+    count = 0
+    for number in range(node.lineno, node.end_lineno + 1):
+        text = lines[number - 1].strip()
+        if text and not text.startswith("#") and number not in skip:
+            count += 1
+    return count
+
+
+def _check_function_length(tree: ast.Module, lines: list[str]) -> list[Issue]:
     issues = []
     for node in ast.walk(tree):
         if _is_function(node):
-            length = node.end_lineno - node.lineno + 1
+            length = _code_line_count(node, lines)
             if length >= MAX_FUNCTION_LINES:
                 issues.append(Issue(
                     "function-length", node.lineno,
@@ -398,7 +412,7 @@ def check_source(source: str) -> list[Issue]:
     lines = source.splitlines()
     issues += _check_blank_lines(tree, lines)
     issues += _check_nested_while(tree)
-    issues += _check_function_length(tree)
+    issues += _check_function_length(tree, lines)
     issues += _check_duplication(tree, source)
     return sorted(issues, key=lambda i: (i.line, i.rule))
 

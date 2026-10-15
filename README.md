@@ -321,10 +321,9 @@ already loaded, but it works the same from a terminal.
 
 ### How is a function's length counted?
 
-In physical lines, from the `def` line through the last line of the function, **including** blank lines, comments and the
-docstring. A function has to be **shorter than 20** lines, so 19 is fine and 20 is flagged. Decorators above the `def`
-aren't counted. Nested functions and methods are each measured on their own. If you'd rather count only lines of code, change
-`_check_function_length` in `checker/quality.py`.
+In lines of code, from the `def` line through the end of the function. **Blank lines, comment lines and the docstring are not
+counted.** A function has to be **shorter than 20** lines, so 19 is fine and 20 is flagged. Decorators above the `def`
+aren't counted. Nested functions and methods are each measured on their own.
 
 ---
 

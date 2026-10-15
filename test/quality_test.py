@@ -369,9 +369,14 @@ class FunctionLength(unittest.TestCase):
         self.assertEqual([(i.rule, i.line) for i in found], [("function-length", 1)])
         self.assertIn("20 lines", found[0].message)
 
-    def test_blank_lines_and_comments_inside_count(self):
-        body = "    x = 1\n\n    # note\n" * 7  # 21 lines of body
-        self.assertEqual(rules("def f():\n" + body), [("function-length", 1)])
+    def test_blank_lines_comments_and_docstring_are_not_counted(self):
+        padding = "    x = 1\n\n    # note\n" * 9  # 9 code lines, 18 lines in all
+        doc = '    """Docs\n    over\n    three lines."""\n'
+        self.assertEqual(rules("def f():\n" + doc + padding), [])  # 10 code lines
+
+    def test_only_code_lines_count_toward_the_limit(self):
+        padding = "    x = 1\n\n    # note\n" * 19  # 19 code lines + def = 20
+        self.assertEqual(rules("def f():\n" + padding), [("function-length", 1)])
 
     def test_every_long_function_is_reported_including_nested_and_methods(self):
         source = (
