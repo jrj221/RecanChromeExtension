@@ -559,13 +559,28 @@ function codeView(snippet) {
     const lineEnd = lineStart + line.length;
     const row = el("div", "snip-line");
     const code = el("span", "snip-text");
-    // Any line the paste touches gets the normal highlight (a partly pasted line isn't singled out).
-    const touched = Math.max(start, lineStart) < Math.min(end, lineEnd) || (!line.length && start <= lineStart && end > lineStart);
-    if (touched) {
+    // A line the paste covers (all of its code, ignoring leading indentation) is highlighted whole.
+    // A line it only partly covers highlights just the pasted characters.
+    const from = Math.max(start, lineStart);
+    const to = Math.min(end, lineEnd);
+    const indent = line.length - line.trimStart().length;
+    const empty = !line.length && start <= lineStart && end > lineStart;
+    const whole = empty || (from < to && from <= lineStart + indent && to >= lineEnd);
+    if (whole) {
       row.classList.add("hl");
       firstHighlight ??= row;
+      code.textContent = line;
+    } else if (from < to) {
+      row.classList.add("part");
+      firstHighlight ??= row;
+      code.append(
+        document.createTextNode(line.slice(0, from - lineStart)),
+        el("mark", "", line.slice(from - lineStart, to - lineStart)),
+        document.createTextNode(line.slice(to - lineStart)),
+      );
+    } else {
+      code.textContent = line;
     }
-    code.textContent = line;
     row.append(el("span", "snip-num", String(firstLine + i)), code);
     view.append(row);
     lineStart = lineEnd + 1;

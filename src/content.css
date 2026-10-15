@@ -80,7 +80,9 @@
 .webrecan-snip .snip-text { flex: 1; white-space: pre; padding-right: 12px; }
 .webrecan-snip .snip-text:empty::before { content: " "; }
 .webrecan-snip .snip-line.hl { background: #fff6d6; box-shadow: inset 3px 0 0 #f9ab00; }
-.webrecan-snip .snip-line.hl .snip-num { color: #b06000; }
+.webrecan-snip .snip-line.hl .snip-num, .webrecan-snip .snip-line.part .snip-num { color: #b06000; }
+.webrecan-snip .snip-line.part { box-shadow: inset 3px 0 0 #f9ab00; }
+.webrecan-snip .snip-text mark { background: #ffe08a; color: inherit; }
 .webrecan-snip .snip-note { margin-top: 6px; color: #5f6368; font-size: 12px; }
 
 /* The X in the info card's heading: closes the card and the pasted-code viewer together. */
