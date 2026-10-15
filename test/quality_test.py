@@ -64,6 +64,14 @@ class Duplication(unittest.TestCase):
         )
         self.assertEqual(dups(source), [])
 
+    def test_a_copy_cant_start_inside_another_block(self):
+        source = (
+            "def a(bit):\n    while bit.can_move_front() and not bit.can_move_right():\n        bit.move()\n    bit.turn_right()\n    bit.move()\n"
+            "    z = 0\n\n\n"
+            "def b(bit):\n    bit.turn_left()\n    while bit.can_move_front():\n        bit.move()\n    bit.turn_right()\n    bit.move()\n"
+        )
+        self.assertEqual(dups(source), [])
+
     def test_a_loop_must_match_its_whole_body(self):
         head = "def f(bit):\n    bit.move()\n    bit.left()\n    while bit.can_move_front():\n"
         same = "        a()\n        b()\n"

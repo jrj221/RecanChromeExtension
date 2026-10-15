@@ -361,6 +361,12 @@ def _check_duplication(tree: ast.Module, source: str) -> list[Issue]:
     for (i, j, n), keys in runs:
         if covered(i, i + n - 1) or covered(j, j + n - 1):
             continue
+        # A copy can't start inside a block it doesn't include the start of: drop leading lines
+        # that are indented deeper than something later in the run (the run then climbs back out).
+        while n and indents[i] > min(indents[i:i + n]):
+            i, j, n = i + 1, j + 1, n - 1
+        if n < minimum_for(keys):
+            continue
         # A block (`while x:` and its body) only counts as a whole, in every copy: if the copies
         # stop partway into a body, drop lines from the end until they don't.
         while n and not (whole(i, n) and whole(j, n)):
