@@ -278,7 +278,7 @@ class BlankLines(unittest.TestCase):
         self.assertEqual(rules(source), [("blank-lines", 5)])
 
     def test_only_neighbouring_functions_are_checked(self):
-        source = "import os\ndef a():\n    pass\nx = 1\ndef b():\n    pass\n"
+        source = "import os\nx = 1\ndef a():\n    pass\nx = 1\ndef b():\n    pass\n"
         self.assertEqual(rules(source), [])
 
     def test_methods_and_nested_functions_are_not_checked(self):
@@ -294,6 +294,33 @@ class BlankLines(unittest.TestCase):
     def test_three_functions_each_gap_is_checked(self):
         source = "def a():\n    pass\n\ndef b():\n    pass\n\n\n\ndef c():\n    pass\n"
         self.assertEqual([r for r, _ in rules(source)], ["blank-lines", "blank-lines"])
+
+
+class ImportSpacing(unittest.TestCase):
+    def test_function_right_after_the_imports_needs_two_blank_lines(self):
+        self.assertEqual(rules("import os\n\n\ndef f():\n    pass\n"), [])
+        self.assertEqual(rules("import os\n\ndef f():\n    pass\n"), [("blank-lines", 3)])
+        self.assertEqual(rules("from byubit import Bit\ndef f():\n    pass\n"), [("blank-lines", 2)])
+
+    def test_code_between_the_imports_and_the_function_isnt_checked(self):
+        self.assertEqual(rules("import os\nX = 1\ndef f():\n    pass\n"), [])
+
+
+class NoBlankLines(unittest.TestCase):
+    """No blank line at all between functions fails the check on the first one."""
+
+    def failed(self, source):
+        rows = summarize(check_files([{"name": "a.py", "text": source}]))
+        return next(r for r in rows if r["rule"] == "blank-lines")["failed"]
+
+    def test_zero_blank_lines_between_functions_fail_immediately(self):
+        self.assertTrue(self.failed("def a():\n    pass\ndef b():\n    pass\n"))
+
+    def test_zero_blank_lines_after_the_imports_fail_immediately(self):
+        self.assertTrue(self.failed("import os\ndef a():\n    pass\n"))
+
+    def test_one_blank_line_is_still_tolerated(self):
+        self.assertFalse(self.failed("def a():\n    pass\n\ndef b():\n    pass\n"))
 
 
 class MainBlockSpacing(unittest.TestCase):
@@ -493,7 +520,7 @@ class Summary(unittest.TestCase):
         self.assertNotIn("syntax", [r["rule"] for r in summarize([result("a.py")])])
 
     def test_real_files_end_to_end(self):
-        slip = "def a():\n    pass\ndef b():\n    pass\n"  # no blank lines between the functions
+        slip = "def a():\n    pass\n\ndef b():\n    pass\n"  # one blank line between the functions
         two = summarize(check_files([{"name": "x.py", "text": slip}, {"name": "y.py", "text": slip}]))
         self.assertFalse(row(two, "blank-lines")["failed"])
         three = summarize(check_files([{"name": n, "text": slip} for n in ("x.py", "y.py", "z.py")]))
@@ -522,7 +549,7 @@ class Api(unittest.TestCase):
         self.assertEqual(quality.main([]), 2)
 
     def test_command_line_tolerates_two_spacing_slips_but_not_three(self):
-        slip = "def a():\n    pass\ndef b():\n    pass\n"
+        slip = "def a():\n    pass\n\ndef b():\n    pass\n"  # one blank line: a tolerated slip
         with tempfile.TemporaryDirectory() as folder:
             for name in ("one.py", "two.py"):
                 (Path(folder) / name).write_text(slip)

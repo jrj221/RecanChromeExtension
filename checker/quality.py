@@ -12,9 +12,10 @@ The checks, and the judgment calls where the rules leave room for interpretation
   indentation      Each block must be indented exactly 4 spaces deeper than the line that opens
                    it. Flags extra indents (8 spaces where 4 is expected, or an indent after a
                    line that doesn't open a block), indents that are too small, and tabs.
-  blank-lines      Two top-level functions that follow one another, or a top-level function and
-                   the `if __name__ == "__main__":` block right after it, must be separated by
-                   exactly 2 blank lines. Comments and decorators directly above a `def` (or the
+  blank-lines      Two top-level functions that follow one another, a top-level function and
+                   the `if __name__ == "__main__":` block right after it, and the last import at
+                   the top and the first function, must be separated by exactly 2 blank lines.
+                   No blank line at all (or 5+) fails the check immediately. Comments and decorators directly above a `def` (or the
                    `if`) count as part of it. Methods inside classes and nested functions are
                    not checked.
   nested-while     A `while` loop may not contain another `while` loop (at any depth, through
@@ -77,8 +78,8 @@ SYNTAX_CHECK = ("syntax", "Python can't read the file")  # only reported if some
 # A check not listed here fails on the first violation.
 ALLOWED_VIOLATIONS = {"indentation": 2, "blank-lines": 2}
 
-# This many blank lines (or more) between functions is so far off that the check fails right
-# away, even if it's under the allowance.
+# No blank line at all, or this many (or more), between functions is so far off that the check
+# fails right away, even if it's under the allowance.
 EGREGIOUS_BLANK_LINES = 5
 
 
@@ -182,17 +183,21 @@ def _is_main_block(node: ast.AST) -> bool:
 def _check_blank_lines(tree: ast.Module, lines: list[str]) -> list[Issue]:
     issues = []
     for before, node in zip(tree.body, tree.body[1:]):
-        # A function followed by another function, or by the `if __name__ == "__main__":` block.
-        if not (_is_function(before) and (_is_function(node) or _is_main_block(node))):
+        # A function followed by another function, or by the `if __name__ == "__main__":` block;
+        # or the last import at the top followed by the first function.
+        after_function = _is_function(before) and (_is_function(node) or _is_main_block(node))
+        after_import = isinstance(before, (ast.Import, ast.ImportFrom)) and _is_function(node)
+        if not (after_function or after_import):
             continue
         blanks = _blank_lines_above(lines, _first_line(node, lines))
         if blanks != BLANK_LINES_BETWEEN_FUNCTIONS:
             plural = "" if blanks == 1 else "s"
             name = f"'{node.name}'" if _is_function(node) else 'the `if __name__ == "__main__"` block'
+            below = " (below the imports)" if after_import else ""
             issues.append(Issue(
                 "blank-lines", node.lineno,
-                f"{name} has {blanks} blank line{plural} above it; there should be exactly {BLANK_LINES_BETWEEN_FUNCTIONS}",
-                severe=blanks >= EGREGIOUS_BLANK_LINES,
+                f"{name} has {blanks} blank line{plural} above it{below}; there should be exactly {BLANK_LINES_BETWEEN_FUNCTIONS}",
+                severe=blanks == 0 or blanks >= EGREGIOUS_BLANK_LINES,
             ))
     return issues
 
