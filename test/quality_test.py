@@ -82,6 +82,15 @@ class Duplication(unittest.TestCase):
         loop = "    while bit.can_move_front():\n        bit.move()\n        bit.paint('blue')\n"
         self.assertEqual(len(dups("def f(bit):\n" + loop + "    bit.right()\n" + loop)), 1)
 
+    def test_a_row_of_plain_assignments_is_not_duplicated_code(self):
+        names = "abcdefghijklmnopqrs"
+        source = "def f():\n" + "".join(f"    {n} = {i}\n" for i, n in enumerate(names)) + "    return a\n"
+        self.assertEqual(dups(source), [])
+
+    def test_identical_assignments_twice_are_still_duplicated(self):
+        block = "    a = 1\n    b = 2\n    c = 3\n"
+        self.assertEqual(len(dups("def f():\n" + block + "    z = 0\n" + block)), 1)
+
     def test_two_identical_lines_are_fine(self):
         block = "    a = input('a? ')\n    print(a)\n"
         self.assertEqual(dups("def f():\n" + block + "    z = 0\n" + block), [])

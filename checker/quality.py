@@ -272,6 +272,10 @@ _KEYWORDS = {
     "nonlocal", "not", "or", "pass", "raise", "return", "True", "try", "while", "with", "yield",
     "print", "input", "range", "len", "int", "str", "float",
 }
+# A shape line that only stores a plain value (`x = 5`, `name = "a"`, `n += 1`). Many of these in a row
+# look identical once names and values are blanked out, but that is not code to turn into a function.
+_PLAIN_ASSIGNMENT = re.compile(r"^\d+:I\s*(?:[-+*/%]|//)?=\s*[NSI]$")
+MIN_REAL_LINES = 2  # a similar (not identical) run needs at least this many lines that aren't plain assignments
 _TRIVIAL = re.compile(r"^(?:else|try|finally|return|break|continue|pass|[)\]}]+)\s*:?$")
 
 
@@ -385,6 +389,8 @@ def _check_duplication(tree: ast.Module, source: str) -> list[Issue]:
                 n = unit
                 break
         # Every copy of this code in the file, not just the pair: one finding however many there are.
+        if keys is shape_keys and sum(1 for k in range(n) if not _PLAIN_ASSIGNMENT.match(keys[i + k])) < MIN_REAL_LINES:
+            continue
         wanted = keys[i:i + n]
         starts = []
         for p in range(len(keys) - n + 1):
