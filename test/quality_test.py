@@ -323,6 +323,39 @@ class NoBlankLines(unittest.TestCase):
         self.assertFalse(self.failed("def a():\n    pass\n\ndef b():\n    pass\n"))
 
 
+class Strict(unittest.TestCase):
+    """strict=True: slips that are normally tolerated a couple of times fail on the first one."""
+
+    SLIP = "def a():\n    pass\n\ndef b():\n    pass\n"  # one blank line between functions
+
+    def test_a_single_slip_is_tolerated_normally_but_not_when_strict(self):
+        results = check_files([{"name": "a.py", "text": self.SLIP}])
+        self.assertFalse(row(summarize(results), "blank-lines")["failed"])
+        strict = row(summarize(results, strict=True), "blank-lines")
+        self.assertTrue(strict["failed"])
+        self.assertEqual(strict["allowed"], 0)
+        self.assertEqual(strict["files"], ["a.py"])
+
+    def test_strict_covers_indentation_too(self):
+        results = check_files([{"name": "a.py", "text": "def f():\n        x = 1\n"}])
+        self.assertTrue(row(summarize(results, strict=True), "indentation")["failed"])
+
+    def test_strict_leaves_clean_files_alone(self):
+        results = check_files([{"name": "a.py", "text": "x = 1\n"}])
+        self.assertFalse(any(r["failed"] for r in summarize(results, strict=True)))
+
+    def test_json_strict_flag(self):
+        import contextlib, io, json
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "a.py"
+            path.write_text(self.SLIP)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                quality.main(["--json", "--strict", str(path)])
+            blank = next(c for c in json.loads(out.getvalue())["checks"] if c["rule"] == "blank-lines")
+            self.assertTrue(blank["failed"])
+
+
 class MainBlockSpacing(unittest.TestCase):
     def with_main(self, gap, main="if __name__ == '__main__':"):
         return "def run():\n    pass\n" + "\n" * gap + main + "\n    run()\n"
