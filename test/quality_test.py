@@ -187,10 +187,18 @@ class Indentation(unittest.TestCase):
         self.assertEqual([(i.rule, i.line) for i in found], [("indentation", 2)])
         self.assertIn("only 2", found[0].message)
 
-    def test_tabs(self):
-        found = check_source("def f():\n\treturn 1\n")
+    def test_one_tab_per_level_counts_as_four_spaces(self):
+        self.assertEqual(rules("def f(x):\n\tif x:\n\t\treturn 1\n\treturn 2\n"), [])
+
+    def test_two_tabs_for_one_level_is_an_extra_indent(self):
+        found = check_source("def f():\n\t\treturn 1\n")
         self.assertEqual([(i.rule, i.line) for i in found], [("indentation", 2)])
-        self.assertIn("tab", found[0].message)
+        self.assertIn("8 spaces", found[0].message)
+
+    def test_mixing_tabs_and_spaces_in_one_block_is_reported(self):
+        found = check_source("def f():\n    x = 1\n\ty = 2\n")
+        self.assertEqual([i.rule for i in found], ["indentation"])
+        self.assertIn("Inconsistent indentation", found[0].message)
 
     def test_dedent_to_a_level_that_does_not_exist(self):
         source = "def f(x):\n    if x:\n        y = 1\n  z = 2\n"

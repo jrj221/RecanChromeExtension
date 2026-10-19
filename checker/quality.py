@@ -11,7 +11,8 @@ The checks, and the judgment calls where the rules leave room for interpretation
 
   indentation      Each block must be indented exactly 4 spaces deeper than the line that opens
                    it. Flags extra indents (8 spaces where 4 is expected, or an indent after a
-                   line that doesn't open a block), indents that are too small, and tabs.
+                   line that doesn't open a block) and indents that are too small. A tab counts as 4
+                   spaces, so one tab per level is fine (Python itself rejects mixing the two in one block).
   blank-lines      Two top-level functions that follow one another, a top-level function and
                    the `if __name__ == "__main__":` block right after it, and the last import at
                    the top and the first function, must be separated by exactly 2 blank lines.
@@ -107,10 +108,8 @@ def _check_indentation(source: str) -> list[Issue]:
         for tok in tokenize.generate_tokens(io.StringIO(source).readline):
             if tok.type == tokenize.INDENT:
                 line = tok.start[0]
-                width = len(tok.string)
-                if "\t" in tok.string:
-                    issues.append(Issue("indentation", line, f"Indented with a tab; use {INDENT_WIDTH} spaces per level"))
-                    width = len(tok.string.expandtabs(INDENT_WIDTH))
+                # A tab counts as INDENT_WIDTH spaces, so one tab per level is as good as 4 spaces.
+                width = len(tok.string.expandtabs(INDENT_WIDTH))
                 if not block_opened:
                     issues.append(Issue("indentation", line, "Extra indent: the line above doesn't start a block"))
                 else:
