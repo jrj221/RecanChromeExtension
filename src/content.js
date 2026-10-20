@@ -82,7 +82,16 @@ const send = (message) =>
 function requestAnalysis(rec) {
   if (analyses.has(rec.id)) return;
   analyses.set(rec.id, { status: "pending" });
-  send({ type: "analyze", url: rec.url, name: rec.name, fileId: rec.id, assignmentId: page.assignmentId, recordingNames: page.recordingNames })
+  send({
+    type: "analyze",
+    url: rec.url,
+    name: rec.name,
+    fileId: rec.id,
+    // All the recordings of this submission: they're analyzed together so a paste of code that came from another file counts as internal.
+    siblings: page.recordings.filter((r) => !r.ignored).map((r) => ({ fileId: r.id, url: r.url, name: r.name })),
+    assignmentId: page.assignmentId,
+    recordingNames: page.recordingNames,
+  })
     .then((res) => {
       if (!res.evaluation) throw new Error("the extension returned no analysis");
       analyses.set(rec.id, { status: "done", evaluation: res.evaluation, starter: res.starter });

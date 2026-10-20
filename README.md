@@ -104,7 +104,7 @@ and checks the output is **identical** for both things the extension uses: the p
 (`recan summary --json ... --exclude .html`). `RECAN` is your installed `recan` command (it needs recan's Python
 dependencies). To include starter code, also set `STARTER_DIR=<folder of the assignment's starter .py files>`.
 `node test/flags.mjs [folder of .gz recordings]` checks how recan's analysis becomes the flags and the pasted-code snippets,
-including rebuilding the whole file at a paste (with a folder, it also compares them with recan's real output). Run the parity test after every upstream update. `python3 test/gen_synthetic.py <folder>` writes extra edge-case recordings.
+including rebuilding the whole file at a paste (with a folder, it also compares them with recan's real output). `node test/cross-file.mjs` checks that code moved between two files' recordings is an internal paste only when both are analyzed together. Run the parity test after every upstream update. `python3 test/gen_synthetic.py <folder>` writes extra edge-case recordings.
 
 > [!WARNING]
 > Keep real recordings out of this repo; they're student work (`*.gz` is git-ignored).
@@ -251,6 +251,11 @@ Recan** is fast afterwards: the recording and the Python session are already the
 the `offscreen` permission and needs Chrome 116 or newer. Results are cached per file, so revisiting a submission is
 instant. Opening a page downloads that submission's recordings (a few hundred KB each) from Gradescope's storage, the same
 files the page already links to.
+
+The submission's recordings are analyzed **together** in one `recan summary` run (the player still opens one recording at a
+time). That's because recan checks every paste against what all the recordings in the run had written earlier: code typed in
+one file and pasted into another (for example, written in the wrong file and moved) counts as an internal paste, not an
+unapproved one. If the group can't be analyzed (say one recording is damaged), each file falls back to being analyzed alone.
 
 ---
 

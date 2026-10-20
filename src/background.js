@@ -87,7 +87,7 @@ const handlers = {
 
   async analyze(msg) {
     const starter = await starterInfo(msg.assignmentId, msg.recordingNames);
-    const res = await callEngine({ op: "summary", url: msg.url, name: msg.name, fileId: msg.fileId, folderId: starter.folderId });
+    const res = await callEngine({ op: "summary", url: msg.url, name: msg.name, fileId: msg.fileId, siblings: msg.siblings, folderId: starter.folderId });
     return { evaluation: res.evaluation, starter: { enabled: starter.enabled, folderId: starter.folderId, source: starter.source } };
   },
 
