@@ -164,6 +164,13 @@ modules with it).
 
 ---
 
+### What is the red "Previous submissions" box?
+
+On a submission page, if the autograder results show the **Previous submissions** test failed, a small red box says so at
+the top of the page. The extension looks for that test by name in the data the page embeds, and if it isn't there, in the
+results drawn on the page, and only shows the box when it clearly failed (a failed status, or a score below the maximum). The
+test's name is `AUTOGRADER_TEST` near the top of the autograder section in `src/content.js`.
+
 ### What does the ? button show?
 
 It appears next to every recording's **Run recan** button once it has been analyzed, so you can look at the details
