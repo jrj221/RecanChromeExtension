@@ -28,20 +28,47 @@ const EASTER_EGG_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
 
 // ---- reading the page ----
 
-/** { recordings, sources } (the .gz recordings and the .py files) from the SubmissionGrader props in `root`. */
-function parsePage(root) {
-  // The submission page embeds its files (with presigned S3 URLs) as React props.
-  const el = root.querySelector('[data-react-class="SubmissionGrader"]');
-  if (!el) return { recordings: [], sources: [] };
-  let props;
-  try {
-    props = JSON.parse(el.getAttribute("data-react-props"));
-  } catch {
-    return { recordings: [], sources: [] };
+/**
+ * Where the submission's files are in the page data. The grading page embeds them as the props of the
+ * SubmissionGrader component (`files`); other pages that show the same files (such as the assignment's
+ * submission page, ?view=files) use other components, so every embedded props blob is searched for a
+ * list of files (objects with a `path` and a download `url`), SubmissionGrader first.
+ */
+function findSubmissionData(root) {
+  const nodes = [root.querySelector('[data-react-class="SubmissionGrader"]'), ...root.querySelectorAll("[data-react-props]")];
+  for (const node of new Set(nodes.filter(Boolean))) {
+    let props;
+    try {
+      props = JSON.parse(node.getAttribute("data-react-props"));
+    } catch {
+      continue;
+    }
+    const files = Array.isArray(props?.files) && props.files.some(isFileLike) ? props.files : findFileList(props);
+    if (files) return { props, files };
   }
+  return null;
+}
+
+const isFileLike = (f) => f && typeof f === "object" && typeof f.path === "string" && !!(f.url || f.file?.url);
+
+function findFileList(node, depth = 0) {
+  if (!node || typeof node !== "object" || depth > 8) return null;
+  if (Array.isArray(node) && node.some(isFileLike)) return node;
+  for (const value of Array.isArray(node) ? node : Object.values(node)) {
+    const found = findFileList(value, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** { recordings, sources } (the .gz recordings and the .py files) from the submission data in `root`. */
+function parsePage(root) {
+  const data = findSubmissionData(root);
+  if (!data) return { recordings: [], sources: [] };
+  const { props } = data;
   // The assignment's name (falling back to the page title, which carries it too).
   const assignmentTitle = [props.assignment?.title, props.assignment?.name, props.assignment_title, root.title].filter(Boolean).join(" | ");
-  const files = (props.files || []).filter((f) => f.url || f.file?.url);
+  const files = data.files.filter(isFileLike);
   // Every student's recording has the same name, so identify files by id, not name.
   const describe = (f) => ({ id: String(f.id ?? f.uuid ?? f.url ?? f.file.url), url: f.url || f.file.url, name: f.path });
   return {

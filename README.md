@@ -101,7 +101,7 @@ autograder does). See [How does it know which starter code to use?](#how-does-it
 
 ## Code quality checker
 
-`checker/quality.py` scans the `.py` files in a submission. On a Gradescope submission page the extension runs it on
+`checker/quality.py` scans the `.py` files in a submission. On a Gradescope submission page (the grading page, or the assignment's submission page with `?view=files`) the extension runs it on
 every Python file listed there and shows one small box at the top of the page:
 
 - **Green**, "✓ Code quality: all checks passed", when every check passes.
