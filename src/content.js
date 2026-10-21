@@ -18,20 +18,70 @@ const EASTER_EGG_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
 
 // ---- reading the page ----
 
-/** { recordings } from the SubmissionGrader props found in `root` (a Document). */
-function parsePage(root) {
-  // The submission page embeds its files (with presigned S3 URLs) as React props.
-  const el = root.querySelector('[data-react-class="SubmissionGrader"]');
-  if (!el) return { recordings: [] };
-  let props;
-  try {
-    props = JSON.parse(el.getAttribute("data-react-props"));
-  } catch {
-    return { recordings: [] };
+/**
+ * Where the submission's files are in the page data. The grading page embeds them as the props of the
+ * SubmissionGrader component (`files`); other pages that show the same files (such as the assignment's
+ * submission page, ?view=files) use other components, so every embedded props blob is searched for a
+ * list of files (objects with a `path` and a download `url`), SubmissionGrader first.
+ */
+function findSubmissionFiles(root) {
+  const nodes = [root.querySelector('[data-react-class="SubmissionGrader"]'), ...root.querySelectorAll("[data-react-props]")];
+  for (const node of new Set(nodes.filter(Boolean))) {
+    let props;
+    try {
+      props = JSON.parse(node.getAttribute("data-react-props"));
+    } catch {
+      continue;
+    }
+    const files = Array.isArray(props?.files) && props.files.some(isFileLike) ? props.files : findFileList(props);
+    if (files) return files;
   }
+  return [];
+}
+
+const isFileLike = (f) => f && typeof f === "object" && typeof f.path === "string" && !!(f.url || f.file?.url);
+
+function findFileList(node, depth = 0) {
+  if (!node || typeof node !== "object" || depth > 8) return null;
+  if (Array.isArray(node) && node.some(isFileLike)) return node;
+  for (const value of Array.isArray(node) ? node : Object.values(node)) {
+    const found = findFileList(value, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+/**
+ * The files drawn on the page as download links to Gradescope's storage, for pages whose data has no file
+ * list (the assignment's submission page keeps the files out of its props; they are only in the links).
+ */
+function filesFromLinks(root) {
+  const seen = new Set();
+  const files = [];
+  for (const link of root.querySelectorAll("a[href]")) {
+    const href = link.getAttribute("href") || "";
+    if (!/amazonaws\.com\//.test(href)) continue;
+    let path;
+    try {
+      path = decodeURIComponent(new URL(href, "https://www.gradescope.com").pathname.split("/").pop());
+    } catch {
+      continue;
+    }
+    const id = href.match(/\/file\/(\d+)\//)?.[1] ?? href;
+    if (!path || seen.has(id)) continue;
+    seen.add(id);
+    files.push({ id, url: href, path });
+  }
+  return files;
+}
+
+/** { recordings } (the .gz recordings) from the submission in `root` (a Document). */
+function parsePage(root) {
+  let files = findSubmissionFiles(root).filter(isFileLike);
+  if (!files.length) files = filesFromLinks(root);
   return {
-    recordings: (props.files || [])
-      .filter((f) => GZ.test(f.path || "") && (f.url || f.file?.url))
+    recordings: files
+      .filter((f) => GZ.test(f.path || ""))
       // Every student's recording has the same name, so identify files by id, not name.
       .map((f) => ({ id: String(f.id ?? f.uuid ?? f.url ?? f.file.url), url: f.url || f.file.url, name: f.path })),
   };
