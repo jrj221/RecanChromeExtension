@@ -105,9 +105,11 @@ autograder does). See [How does it know which starter code to use?](#how-does-it
 every Python file listed there and shows one small box at the top of the page:
 
 - **Green**, "✓ Code quality: all checks passed", when every check passes.
-- A red **warning**, "⚠ Code quality: some checks failed", otherwise. Click it to see the checks, a ✓ or ✗ for each, and
-  next to each ✗ the files that failed it. It doesn't say why; for the exact lines and reasons, run the checker from a
-  terminal (below).
+- A red **warning**, "⚠ Code quality: some checks failed", otherwise. It opens by itself and lists only the failed checks,
+  with the files that failed each. It doesn't say why; for the exact lines and reasons, run the checker from a terminal
+  (below). When everything passes there is nothing to show, so the green box can't be opened.
+- If the autograder's **Previous Submission(s)** test shows earlier submissions (see below), the box turns red and starts
+  with a bold line saying so, above the failed checks.
 
 Checks are judged across **all the files together**, not file by file. Indentation and blank-line slips are common and
 minor, so each of those two only fails once it has happened **more than twice in total** (three or more, however they're
@@ -226,9 +228,9 @@ modules with it).
 
 ---
 
-### What is the red "Previous submissions" box?
+### How does the Previous submissions flag show up?
 
-On a submission page, a small red box appears at the top when the autograder's **Previous Submission(s)** test shows the
+On a submission page, a bold line appears at the top of the red code quality box (on `main`, which has no quality box, it's a small red box of its own) when the autograder's **Previous Submission(s)** test shows the
 student already submitted before: either the test clearly failed, or its output ("You have made N previous submissions.")
 says N is above 0 (that test is scored 0/0, so its score can't say). The extension reads this from the data the page embeds,
 and if it isn't there, from the results drawn on the page. The test's name and the output wording are `AUTOGRADER_TEST` and

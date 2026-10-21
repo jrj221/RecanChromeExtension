@@ -148,6 +148,7 @@ const el = (tag, className, text) => {
 
 let quality = { key: "", status: "none" }; // status: "none" | "pending" | "done" | "error"
 let banner = null;
+let previousFlag = null; // text from the autograder's Previous Submission(s) test, shown in the box, or null
 
 const prefetched = new Set();
 /** Start downloading recordings right away (while the page draws its file list); analysis uses them later. */
@@ -170,7 +171,7 @@ function requestQuality(sources) {
 }
 
 function paintBanner() {
-  if (quality.status === "none") {
+  if (quality.status === "none" && !previousFlag) {
     banner?.remove();
     banner = null;
     return;
@@ -189,7 +190,7 @@ function paintBanner() {
     if (main?.parentNode) main.parentNode.insertBefore(banner, main);
     else document.body.prepend(banner);
   }
-  const signature = JSON.stringify(quality);
+  const signature = JSON.stringify([quality, previousFlag]);
   if (banner.dataset.sig === signature) return; // nothing changed; don't touch the DOM
   banner.dataset.sig = signature;
   fillBanner();
@@ -227,38 +228,55 @@ function fillBanner() {
   banner.classList.remove("is-ok", "is-bad", "is-pending");
   banner.open = false;
 
-  if (quality.status === "pending") {
+  // The checker decides which checks failed (it counts across all the files) and names them.
+  const failedChecks = quality.status === "done" ? quality.checks.filter((check) => check.failed) : [];
+
+  // Earlier submissions come first, in bold, so it can't be missed.
+  if (previousFlag) {
+    const row = el("div", "check fail previous");
+    row.append(el("span", "mark", "⚠"), el("strong", "label", previousFlag[0].toUpperCase() + previousFlag.slice(1)));
+    body.append(row);
+  }
+  for (const check of failedChecks) {
+    const row = el("div", "check fail");
+    row.append(el("span", "mark", "✗"), el("span", "label", check.label), el("span", "files", check.files.join(", ")));
+    body.append(row);
+    // Duplicated code: a dropdown per repeated snippet.
+    for (const item of check.items || []) {
+      const dup = el("details", "dup");
+      const copies = el("div", "copies"); // the two copies, side by side
+      const left = el("pre", "", item.snippet);
+      const right = el("pre", "", item.other);
+      copies.append(left, right);
+      dup.append(el("summary", "", `${item.file}: ${item.where}`), copies);
+      syncScroll(left, right);
+      body.append(dup);
+    }
+  }
+
+  if (previousFlag || failedChecks.length) {
+    const parts = [];
+    if (previousFlag) parts.push("Previous submission(s)");
+    if (failedChecks.length) parts.push("Code quality: some checks failed");
+    else if (quality.status === "pending") parts.push("checking code quality…");
+    banner.classList.add("is-bad");
+    summary.textContent = "⚠ " + parts.join(" · ");
+    banner.open = true; // problems are shown right away
+  } else if (quality.status === "pending") {
     banner.classList.add("is-pending");
     summary.textContent = "Checking code quality…";
   } else if (quality.status === "error") {
     banner.classList.add("is-pending");
     summary.textContent = `Couldn't check code quality: ${quality.error}`;
   } else {
-    // The checker decides which checks failed (it counts across all the files) and names them.
-    if (quality.checks.every((check) => !check.failed)) {
-      banner.classList.add("is-ok");
-      summary.textContent = "✓ Code quality: all checks passed";
-    } else {
-      banner.classList.add("is-bad");
-      summary.textContent = "⚠ Code quality: some checks failed";
-      banner.open = true; // failures are shown right away
-      for (const check of quality.checks.filter((c) => c.failed)) {
-        const row = el("div", "check fail");
-        row.append(el("span", "mark", "✗"), el("span", "label", check.label), el("span", "files", check.files.join(", ")));
-        body.append(row);
-        // Duplicated code: a dropdown per repeated snippet.
-        for (const item of check.items || []) {
-          const dup = el("details", "dup");
-          const copies = el("div", "copies"); // the two copies, side by side
-          const left = el("pre", "", item.snippet);
-          const right = el("pre", "", item.other);
-          copies.append(left, right);
-          dup.append(el("summary", "", `${item.file}: ${item.where}`), copies);
-          syncScroll(left, right);
-                    body.append(dup);
-        }
-      }
-    }
+    banner.classList.add("is-ok");
+    summary.textContent = "✓ Code quality: all checks passed";
+  }
+
+  // Nothing to show (everything passed, or still working): the box can't be opened.
+  if (!body.children.length) {
+    banner.open = false;
+    summary.addEventListener("click", (event) => event.preventDefault());
   }
   banner.replaceChildren(summary, body);
 }
@@ -776,7 +794,6 @@ const AUTOGRADER_TEST = /previous\s+submission/i; // "Previous Submission(s)" an
 const PREVIOUS_COUNT = /you have made\s+(\d+)\s+previous\s+submission/i; // the test's output: "You have made 1 previous submissions."
 const STATUS_FAIL = /fail|error|incorrect/i; // a status field: "failed", "error", ...
 const TEXT_FAIL = /\b(fail|failed|failing)\b/i; // free text on the page: only an outright "failed"
-let autograderBox = null;
 
 /** Is this test-like object failed (true), passed (false), or can't we tell (null)? */
 function testVerdict(test) {
@@ -851,25 +868,9 @@ function previousSubmissionsFlag() {
   return count > 0 ? countMessage(count) : null;
 }
 
-function paintAutograderFlag() {
-  const message = previousSubmissionsFlag();
-  if (!message) {
-    autograderBox?.remove();
-    autograderBox = null;
-    return;
-  }
-  if (!autograderBox) {
-    autograderBox = document.createElement("div");
-    created.add(autograderBox);
-    autograderBox.className = "webrecan-autograder";
-    autograderBox.setAttribute("role", "alert");
-  }
-  autograderBox.textContent = message;
-  if (!autograderBox.isConnected) {
-    const main = document.getElementById("main-content");
-    if (main?.parentNode) main.parentNode.insertBefore(autograderBox, main);
-    else document.body.prepend(autograderBox);
-  }
+/** Remember what the autograder says about earlier submissions; the code quality box shows it. */
+function updatePreviousFlag() {
+  previousFlag = previousSubmissionsFlag()?.replace(/^⚠ Autograder:\s*/, "") ?? null;
 }
 
 // ---- placing the buttons ----
@@ -979,8 +980,8 @@ function render() {
   for (const rec of [...placed, ...fallback]) requestAnalysis(rec);
   renderFallback(fallback);
   paintAll();
+  updatePreviousFlag();
   paintBanner();
-  paintAutograderFlag();
 }
 
 // React redraws the list, which can drop our buttons, so re-check after changes
