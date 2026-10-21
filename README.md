@@ -228,10 +228,11 @@ modules with it).
 
 ### What is the red "Previous submissions" box?
 
-On a submission page, if the autograder results show the **Previous submissions** test failed, a small red box says so at
-the top of the page. The extension looks for that test by name in the data the page embeds, and if it isn't there, in the
-results drawn on the page, and only shows the box when it clearly failed (a failed status, or a score below the maximum). The
-test's name is `AUTOGRADER_TEST` near the top of the autograder section in `src/content.js`.
+On a submission page, a small red box appears at the top when the autograder's **Previous Submission(s)** test shows the
+student already submitted before: either the test clearly failed, or its output ("You have made N previous submissions.")
+says N is above 0 (that test is scored 0/0, so its score can't say). The extension reads this from the data the page embeds,
+and if it isn't there, from the results drawn on the page. The test's name and the output wording are `AUTOGRADER_TEST` and
+`PREVIOUS_COUNT` near the top of the autograder section in `src/content.js`.
 
 ### What does the ? button show?
 
