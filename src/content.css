@@ -115,3 +115,7 @@
 .webrecan-pop .pop-close { flex: none; margin: -2px -4px 0 0; padding: 0 6px; border: 0; border-radius: 4px; background: none;
   color: #5f6368; font: 14px/22px system-ui, sans-serif; cursor: pointer; }
 .webrecan-pop .pop-close:hover { background: #f1f3f4; color: #202124; }
+
+/* ---- autograder flag ---- */
+.webrecan-autograder { display: block; box-sizing: border-box; width: fit-content; max-width: calc(100% - 32px); margin: 8px 16px; padding: 5px 12px;
+  border: 1.5px solid #d93025; border-radius: 6px; background: #fce8e6; color: #a50e0e; font: 600 13px/1.45 system-ui, sans-serif; }

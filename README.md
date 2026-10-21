@@ -154,7 +154,7 @@ and checks the output is **identical** for both things the extension uses: the p
 (`recan summary --json ... --exclude .html`). `RECAN` is your installed `recan` command (it needs recan's Python
 dependencies). To include starter code, also set `STARTER_DIR=<folder of the assignment's starter .py files>`.
 `node test/flags.mjs [folder of .gz recordings]` checks how recan's analysis becomes the flags and the pasted-code snippets,
-including rebuilding the whole file at a paste (with a folder, it also compares them with recan's real output). Run the parity test after every upstream update. `python3 test/gen_synthetic.py <folder>` writes extra edge-case recordings.
+including rebuilding the whole file at a paste (with a folder, it also compares them with recan's real output). `node test/cross-file.mjs` checks that code moved between two files' recordings is an internal paste only when both are analyzed together. Run the parity test after every upstream update. `python3 test/gen_synthetic.py <folder>` writes extra edge-case recordings.
 
 > [!WARNING]
 > Keep real recordings out of this repo; they're student work (`*.gz` is git-ignored).
@@ -225,6 +225,13 @@ counts the results. The 2 minutes is `MIN_ACTIVE_SECONDS` in `src/flags.js` (and
 modules with it).
 
 ---
+
+### What is the red "Previous submissions" box?
+
+On a submission page, if the autograder results show the **Previous submissions** test failed, a small red box says so at
+the top of the page. The extension looks for that test by name in the data the page embeds, and if it isn't there, in the
+results drawn on the page, and only shows the box when it clearly failed (a failed status, or a score below the maximum). The
+test's name is `AUTOGRADER_TEST` near the top of the autograder section in `src/content.js`.
 
 ### What does the ? button show?
 
@@ -323,6 +330,11 @@ already loaded, but it works the same from a terminal.
 In lines of code, from the `def` line through the end of the function. **Blank lines, comment lines and the docstring are not
 counted.** A function has to be **shorter than 20** lines, so 19 is fine and 20 is flagged. Decorators above the `def`
 aren't counted. Nested functions and methods are each measured on their own.
+
+The submission's recordings are analyzed **together** in one `recan summary` run (the player still opens one recording at a
+time). That's because recan checks every paste against what all the recordings in the run had written earlier: code typed in
+one file and pasted into another (for example, written in the wrong file and moved) counts as an internal paste, not an
+unapproved one. If the group can't be analyzed (say one recording is damaged), each file falls back to being analyzed alone.
 
 ---
 

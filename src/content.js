@@ -97,7 +97,16 @@ const send = (message) =>
 function requestAnalysis(rec) {
   if (rec.ignored || analyses.has(rec.id)) return;
   analyses.set(rec.id, { status: "pending" });
-  send({ type: "analyze", url: rec.url, name: rec.name, fileId: rec.id, assignmentId: page.assignmentId, recordingNames: page.recordingNames })
+  send({
+    type: "analyze",
+    url: rec.url,
+    name: rec.name,
+    fileId: rec.id,
+    // All the recordings of this submission: they're analyzed together so a paste of code that came from another file counts as internal.
+    siblings: page.recordings.filter((r) => !r.ignored).map((r) => ({ fileId: r.id, url: r.url, name: r.name })),
+    assignmentId: page.assignmentId,
+    recordingNames: page.recordingNames,
+  })
     .then((res) => {
       if (!res.evaluation) throw new Error("the extension returned no analysis");
       analyses.set(rec.id, { status: "done", evaluation: res.evaluation, starter: res.starter });
@@ -757,6 +766,101 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+// ---- autograder: the "Previous submissions" test ----
+//
+// A small red box when the autograder results show the "Previous submissions" test failed. The test
+// is found in the page's embedded data first (the React props), then, if it isn't there, in the
+// visible results. Anything that isn't clearly a failure shows nothing.
+
+const AUTOGRADER_TEST = /previous\s+submissions/i;
+const STATUS_FAIL = /fail|error|incorrect/i; // a status field: "failed", "error", ...
+const TEXT_FAIL = /\b(fail|failed|failing)\b/i; // free text on the page: only an outright "failed"
+let autograderBox = null;
+
+/** Is this test-like object failed (true), passed (false), or can't we tell (null)? */
+function testVerdict(test) {
+  for (const key of ["status", "result", "outcome", "state"]) {
+    const value = test[key];
+    if (typeof value === "string") {
+      if (/pass|success/i.test(value)) return false;
+      if (STATUS_FAIL.test(value)) return true;
+    }
+  }
+  for (const key of ["passed", "success"]) if (typeof test[key] === "boolean") return !test[key];
+  for (const [score, max] of [["score", "max_score"], ["points", "max_points"], ["score", "weight"], ["score", "possible"]]) {
+    if (typeof test[score] === "number" && typeof test[max] === "number" && test[max] > 0) return test[score] < test[max];
+  }
+  return null;
+}
+
+/** Walk parsed props looking for the test; the first one that says pass or fail decides. */
+function findTestInData(node, depth = 0) {
+  if (!node || typeof node !== "object" || depth > 12) return null;
+  if (!Array.isArray(node)) {
+    const named = ["name", "title", "test_name", "description", "label"].some((k) => typeof node[k] === "string" && AUTOGRADER_TEST.test(node[k]));
+    if (named) {
+      const verdict = testVerdict(node);
+      if (verdict !== null) return verdict;
+    }
+  }
+  for (const value of Array.isArray(node) ? node : Object.values(node)) {
+    const found = findTestInData(value, depth + 1);
+    if (found !== null) return found;
+  }
+  return null;
+}
+
+/** The same question answered from what's drawn on the page: the row/section that names the test. */
+function findTestInPage() {
+  const named = [...document.querySelectorAll("li, tr, div, section, p, span, h3, h4, h5")]
+    .filter((node) => !node.closest(".webrecan-autograder") && AUTOGRADER_TEST.test(node.textContent || "") && (node.textContent || "").length < 600)
+    // The smallest elements that mention the test; their parents mention it too.
+    .filter((node) => ![...node.children].some((child) => AUTOGRADER_TEST.test(child.textContent || "")));
+  for (const node of named) {
+    const row = node.closest("li, tr, [class*='test' i], [class*='result' i]") || node.parentElement || node;
+    const text = row.textContent || "";
+    const score = text.match(/(\d+(?:\.\d+)?)\s*(?:\/|out of)\s*(\d+(?:\.\d+)?)/i);
+    if (score && Number(score[2]) > 0) return Number(score[1]) < Number(score[2]);
+    const classes = [row, ...row.querySelectorAll("*")].map((n) => (typeof n.className === "string" ? n.className : "")).join(" ");
+    if (/\b(fail|failed|failing)\b|test-?fail|--fail/i.test(classes) || TEXT_FAIL.test(text.replace(AUTOGRADER_TEST, ""))) return true;
+  }
+  return null;
+}
+
+function previousSubmissionsFailed() {
+  for (const node of document.querySelectorAll("[data-react-props]")) {
+    const raw = node.getAttribute("data-react-props") || "";
+    if (!/previous\s+submissions/i.test(raw)) continue; // cheap check before parsing a big blob
+    try {
+      const verdict = findTestInData(JSON.parse(raw));
+      if (verdict !== null) return verdict;
+    } catch {
+      // not JSON; ignore
+    }
+  }
+  return findTestInPage() === true;
+}
+
+function paintAutograderFlag() {
+  if (!previousSubmissionsFailed()) {
+    autograderBox?.remove();
+    autograderBox = null;
+    return;
+  }
+  if (!autograderBox) {
+    autograderBox = document.createElement("div");
+    created.add(autograderBox);
+    autograderBox.className = "webrecan-autograder";
+    autograderBox.setAttribute("role", "alert");
+    autograderBox.textContent = "⚠ Autograder: the “Previous submissions” test failed";
+  }
+  if (!autograderBox.isConnected) {
+    const main = document.getElementById("main-content");
+    if (main?.parentNode) main.parentNode.insertBefore(autograderBox, main);
+    else document.body.prepend(autograderBox);
+  }
+}
+
 // ---- placing the buttons ----
 
 /** Elements whose own text is exactly this file name (full path or basename). */
@@ -822,7 +926,7 @@ let seenAt = Date.now();
 
 function render() {
   // Remove lifeless copies of our elements (see `created`); live ones are re-added below.
-  for (const node of document.querySelectorAll(".webrecan-ctl, .webrecan-pop, .webrecan-banner, #webrecan-panel")) {
+  for (const node of document.querySelectorAll(".webrecan-ctl, .webrecan-pop, .webrecan-banner, .webrecan-autograder, #webrecan-panel")) {
     if (!created.has(node)) node.remove();
   }
   page = currentPage();
@@ -865,11 +969,12 @@ function render() {
   renderFallback(fallback);
   paintAll();
   paintBanner();
+  paintAutograderFlag();
 }
 
 // React redraws the list, which can drop our buttons, so re-check after changes
 // (ignoring changes we made ourselves).
-const ours = ".webrecan-ctl, .webrecan-pop, .webrecan-banner, #webrecan-panel";
+const ours = ".webrecan-ctl, .webrecan-pop, .webrecan-banner, .webrecan-autograder, #webrecan-panel";
 let timer;
 new MutationObserver((mutations) => {
   const foreign = mutations.some((m) => !(m.target.nodeType === 1 ? m.target : m.target.parentElement)?.closest(ours));
