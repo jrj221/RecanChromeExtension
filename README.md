@@ -104,7 +104,7 @@ and checks the output is **identical** for both things the extension uses: the p
 (`recan summary --json ... --exclude .html`). `RECAN` is your installed `recan` command (it needs recan's Python
 dependencies). To include starter code, also set `STARTER_DIR=<folder of the assignment's starter .py files>`.
 `node test/flags.mjs [folder of .gz recordings]` checks how recan's analysis becomes the flags and the pasted-code snippets,
-including rebuilding the whole file at a paste (with a folder, it also compares them with recan's real output). `node test/cross-file.mjs` checks that code moved between two files' recordings is an internal paste only when both are analyzed together. Run the parity test after every upstream update. `python3 test/gen_synthetic.py <folder>` writes extra edge-case recordings.
+including rebuilding the whole file at a paste (with a folder, it also compares them with recan's real output). `node test/tabreturn.mjs` checks the return-to-Gradescope behavior with stand-ins for Chrome's tab APIs. `node test/cross-file.mjs` checks that code moved between two files' recordings is an internal paste only when both are analyzed together. Run the parity test after every upstream update. `python3 test/gen_synthetic.py <folder>` writes extra edge-case recordings.
 
 > [!WARNING]
 > Keep real recordings out of this repo; they're student work (`*.gz` is git-ignored).
@@ -259,6 +259,12 @@ one file and pasted into another (for example, written in the wrong file and mov
 unapproved one. If the group can't be analyzed (say one recording is damaged), each file falls back to being analyzed alone.
 
 ---
+
+### Does closing the player take me back to Gradescope?
+
+Yes. The player opens in a new tab, and closing it returns you to the Gradescope tab you clicked from. It only does that if the
+player was the tab in front when you closed it, so closing it from the background never pulls you away from another tab
+(`src/tabreturn.js`).
 
 ### What happens when I click Run Recan?
 

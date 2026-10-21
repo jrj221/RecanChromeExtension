@@ -1,6 +1,9 @@
 // Routes work between the Gradescope page, the viewer tab and the hidden engine page
 // (offscreen.js), and remembers which starter folder goes with which assignment.
 import { folderLabel, loadIndex, matchFolder, stemOf } from "./starter.js";
+import { trackTabReturns } from "./tabreturn.js";
+
+const rememberOpener = trackTabReturns(); // closing a player tab returns you to the tab you opened it from
 
 const NONE = "none"; // saved choice: don't check starter code for this assignment
 
@@ -92,11 +95,13 @@ const handlers = {
   },
 
   // Page script: open the viewer tab for this recording.
-  async "open-recording"(msg) {
+  async "open-recording"(msg, sender) {
     const viewer = new URL(chrome.runtime.getURL("src/viewer.html"));
     for (const key of ["url", "name", "assignmentId"]) viewer.searchParams.set(key, msg[key] ?? "");
     viewer.searchParams.set("recordingNames", JSON.stringify(msg.recordingNames ?? []));
-    await chrome.tabs.create({ url: viewer.href });
+    const from = sender?.tab?.id; // the Gradescope tab the click came from
+    const tab = await chrome.tabs.create({ url: viewer.href, ...(from != null && { openerTabId: from }) });
+    if (from != null && tab.id != null) await rememberOpener(tab.id, from);
     return {};
   },
 
@@ -116,10 +121,10 @@ const handlers = {
   },
 };
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const handler = handlers[msg?.type];
   if (!handler || msg.target) return; // ignore messages meant for the engine page
-  handler(msg).then(
+  handler(msg, sender).then(
     (result) => sendResponse({ ok: true, ...result }),
     (e) => sendResponse({ ok: false, error: e.message || String(e) }),
   );
