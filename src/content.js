@@ -61,14 +61,53 @@ function findFileList(node, depth = 0) {
   return null;
 }
 
-/** { recordings, sources } (the .gz recordings and the .py files) from the submission data in `root`. */
+/** The embedded props that carry the assignment (its title), whichever component they belong to. */
+function assignmentProps(root) {
+  for (const node of root.querySelectorAll("[data-react-props]")) {
+    const raw = node.getAttribute("data-react-props") || "";
+    if (!raw.includes('"assignment"')) continue; // cheap check before parsing a big blob
+    try {
+      const props = JSON.parse(raw);
+      if (props?.assignment) return props;
+    } catch {
+      // not JSON; ignore
+    }
+  }
+  return null;
+}
+
+/**
+ * The files drawn on the page as download links to Gradescope's storage, for pages whose data has no file
+ * list (the assignment's submission page keeps the files out of its props; they are only in the links).
+ */
+function filesFromLinks(root) {
+  const seen = new Set();
+  const files = [];
+  for (const link of root.querySelectorAll("a[href]")) {
+    const href = link.getAttribute("href") || "";
+    if (!/amazonaws\.com\//.test(href)) continue;
+    let path;
+    try {
+      path = decodeURIComponent(new URL(href, "https://www.gradescope.com").pathname.split("/").pop());
+    } catch {
+      continue;
+    }
+    const id = href.match(/\/file\/(\d+)\//)?.[1] ?? href;
+    if (!path || seen.has(id)) continue;
+    seen.add(id);
+    files.push({ id, url: href, path });
+  }
+  return files;
+}
+
+/** { recordings, sources } (the .gz recordings and the .py files) from the submission in `root`. */
 function parsePage(root) {
   const data = findSubmissionData(root);
-  if (!data) return { recordings: [], sources: [] };
-  const { props } = data;
+  const props = data?.props ?? assignmentProps(root);
   // The assignment's name (falling back to the page title, which carries it too).
-  const assignmentTitle = [props.assignment?.title, props.assignment?.name, props.assignment_title, root.title].filter(Boolean).join(" | ");
-  const files = data.files.filter(isFileLike);
+  const assignmentTitle = [props?.assignment?.title, props?.assignment?.name, props?.assignment_title, root.title].filter(Boolean).join(" | ");
+  let files = data ? data.files.filter(isFileLike) : [];
+  if (!files.length) files = filesFromLinks(root);
   // Every student's recording has the same name, so identify files by id, not name.
   const describe = (f) => ({ id: String(f.id ?? f.uuid ?? f.url ?? f.file.url), url: f.url || f.file.url, name: f.path });
   return {
