@@ -63,7 +63,7 @@ test("pastes shorter than MIN_PASTED_LINES are not counted, flagged or shown", (
   const short = evaluateSession(session([paste(lines(MIN_PASTED_LINES - 1), at, { line_count: MIN_PASTED_LINES - 1 })]));
   assert.deepEqual(short.unapproved, { count: 0, chars: 0, snippets: [] });
   assert.equal(short.flags.unapprovedPastes, false);
-  const exact = evaluateSession(session([paste(lines(MIN_PASTED_LINES), at), paste("one liner", at, { line_count: 1 })]));
+  const exact = evaluateSession(session([paste(lines(MIN_PASTED_LINES), at), paste("one liner", at, { line_count: MIN_PASTED_LINES - 1 })]));
   assert.equal(exact.unapproved.count, 1);
   assert.equal(exact.flags.unapprovedPastes, true);
 });

@@ -9,8 +9,18 @@
 // button right after it. Anything we cannot place falls back to a small panel.
 
 const GZ = /\.gz(\?|$)/i;
+const PY = /\.py$/i;
+
+// Files whose names start with "test" (test_calculator.py, test_words.recording.jsonl.gz, ...) are
+// ignored by the flag checks: they are not analyzed, flagged or counted. Keep in step with
+// is_ignored in checker/quality.py.
+const isTestFile = (path) => /^test/i.test(String(path).split("/").pop());
 const MARK = "data-webrecan";
 const MIN_ACTIVE_SECONDS = 2 * 60; // keep in sync with flags.js (content scripts can't import modules)
+// Progress checks are meant to be short: a total recording time (idle included) over this is flagged.
+const MAX_PROGRESS_CHECK_SECONDS = 2 * 60 * 60;
+const isProgressCheck = (title) => /progress\s*check/i.test(title || "");
+const tooLong = (e) => isProgressCheck(page.assignmentTitle) && e.totalSeconds > MAX_PROGRESS_CHECK_SECONDS;
 
 // Easter egg: this fraction of clicks goes somewhere else instead.
 const EASTER_EGG_ODDS = 0.01;
@@ -24,7 +34,7 @@ const EASTER_EGG_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
  * submission page, ?view=files) use other components, so every embedded props blob is searched for a
  * list of files (objects with a `path` and a download `url`), SubmissionGrader first.
  */
-function findSubmissionFiles(root) {
+function findSubmissionData(root) {
   const nodes = [root.querySelector('[data-react-class="SubmissionGrader"]'), ...root.querySelectorAll("[data-react-props]")];
   for (const node of new Set(nodes.filter(Boolean))) {
     let props;
@@ -34,9 +44,9 @@ function findSubmissionFiles(root) {
       continue;
     }
     const files = Array.isArray(props?.files) && props.files.some(isFileLike) ? props.files : findFileList(props);
-    if (files) return files;
+    if (files) return { props, files };
   }
-  return [];
+  return null;
 }
 
 const isFileLike = (f) => f && typeof f === "object" && typeof f.path === "string" && !!(f.url || f.file?.url);
@@ -47,6 +57,21 @@ function findFileList(node, depth = 0) {
   for (const value of Array.isArray(node) ? node : Object.values(node)) {
     const found = findFileList(value, depth + 1);
     if (found) return found;
+  }
+  return null;
+}
+
+/** The embedded props that carry the assignment (its title), whichever component they belong to. */
+function assignmentProps(root) {
+  for (const node of root.querySelectorAll("[data-react-props]")) {
+    const raw = node.getAttribute("data-react-props") || "";
+    if (!raw.includes('"assignment"')) continue; // cheap check before parsing a big blob
+    try {
+      const props = JSON.parse(raw);
+      if (props?.assignment) return props;
+    } catch {
+      // not JSON; ignore
+    }
   }
   return null;
 }
@@ -75,15 +100,21 @@ function filesFromLinks(root) {
   return files;
 }
 
-/** { recordings } (the .gz recordings) from the submission in `root` (a Document). */
+/** { recordings, sources } (the .gz recordings and the .py files) from the submission in `root`. */
 function parsePage(root) {
-  let files = findSubmissionFiles(root).filter(isFileLike);
+  const data = findSubmissionData(root);
+  const props = data?.props ?? assignmentProps(root);
+  // The assignment's name (falling back to the page title, which carries it too).
+  const assignmentTitle = [props?.assignment?.title, props?.assignment?.name, props?.assignment_title, root.title].filter(Boolean).join(" | ");
+  let files = data ? data.files.filter(isFileLike) : [];
   if (!files.length) files = filesFromLinks(root);
+  // Every student's recording has the same name, so identify files by id, not name.
+  const describe = (f) => ({ id: String(f.id ?? f.uuid ?? f.url ?? f.file.url), url: f.url || f.file.url, name: f.path });
   return {
-    recordings: files
-      .filter((f) => GZ.test(f.path || ""))
-      // Every student's recording has the same name, so identify files by id, not name.
-      .map((f) => ({ id: String(f.id ?? f.uuid ?? f.url ?? f.file.url), url: f.url || f.file.url, name: f.path })),
+    assignmentTitle,
+    // Test recordings keep their Run recan button but are never analyzed or flagged.
+    recordings: files.filter((f) => GZ.test(f.path || "")).map((f) => ({ ...describe(f), ignored: isTestFile(f.path) })),
+    sources: files.filter((f) => PY.test(f.path || "") && !isTestFile(f.path)).map(describe),
   };
 }
 
@@ -91,7 +122,7 @@ function parsePage(root) {
 // page. The props in the DOM then still belong to the submission we first loaded, so
 // for any other URL we fetch that page and read its props instead.
 const loadedPath = location.pathname;
-const pagesByPath = new Map(); // pathname -> { recordings }, for pages other than loadedPath
+const pagesByPath = new Map(); // pathname -> { recordings, sources }, for pages other than loadedPath
 
 function currentPage() {
   const path = location.pathname;
@@ -100,7 +131,7 @@ function currentPage() {
   if (path === loadedPath) parsed = parsePage(document);
   else {
     if (!pagesByPath.has(path)) {
-      pagesByPath.set(path, { recordings: [] }); // until the fetch finishes (or if it fails)
+      pagesByPath.set(path, { recordings: [], sources: [] }); // until the fetch finishes (or if it fails)
       fetch(location.pathname + location.search, { credentials: "include" })
         .then((res) => (res.ok ? res.text() : Promise.reject(new Error(`HTTP ${res.status}`))))
         .then((html) => {
@@ -117,7 +148,7 @@ function currentPage() {
 
 // ---- talking to the extension ----
 
-let page = { recordings: [], assignmentId: "", recordingNames: [] }; // the page last rendered
+let page = { recordings: [], sources: [], assignmentId: "", assignmentTitle: "", recordingNames: [] }; // the page last rendered
 
 const analyses = new Map(); // recording id -> { status: "pending" | "done" | "error", evaluation, starter, error }
 const starterInfos = new Map(); // assignment id + recording names -> { enabled, folderId, source, folders } | "pending"
@@ -130,7 +161,7 @@ const send = (message) =>
   });
 
 function requestAnalysis(rec) {
-  if (analyses.has(rec.id)) return;
+  if (rec.ignored || analyses.has(rec.id)) return;
   analyses.set(rec.id, { status: "pending" });
   send({
     type: "analyze",
@@ -165,6 +196,155 @@ async function chooseStarterFolder(folderId) {
   analyses.clear();
   starterInfos.clear();
   render();
+}
+
+const el = (tag, className, text) => {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+};
+
+// ---- code quality banner ----
+//
+// A small box at the top of the page: green when every .py file in the submission passes the
+// checks in checker/quality.py, a warning block otherwise. Clicking the warning shows each check
+// and which files failed it (not why; run checker/quality.py for the details). This is separate
+// from recan.
+
+let quality = { key: "", status: "none" }; // status: "none" | "pending" | "done" | "error"
+let banner = null;
+let previousFlag = null; // text from the autograder's Previous Submission(s) test, shown in the box, or null
+
+const prefetched = new Set();
+/** Start downloading recordings right away (while the page draws its file list); analysis uses them later. */
+function prefetchRecordings(recordings) {
+  const urls = recordings.filter((r) => !r.ignored).map((r) => r.url).filter((url) => !prefetched.has(url));
+  if (!urls.length) return;
+  urls.forEach((url) => prefetched.add(url));
+  send({ type: "prefetch", urls }).catch(() => {});
+}
+
+function requestQuality(sources) {
+  const key = sources.map((s) => s.id).join(",");
+  if (key === quality.key) return;
+  quality = { key, status: sources.length ? "pending" : "none" };
+  if (!sources.length) return;
+  send({ type: "quality", files: sources.map(({ id, url, name }) => ({ id, url, name })) })
+    .then((res) => key === quality.key && (quality = { key, status: "done", checks: res.checks }))
+    .catch((e) => key === quality.key && (quality = { key, status: "error", error: e.message }))
+    .finally(paintBanner);
+}
+
+function paintBanner() {
+  if (quality.status === "none" && !previousFlag) {
+    banner?.remove();
+    banner = null;
+    return;
+  }
+  if (!banner) {
+    banner = document.createElement("details");
+    created.add(banner);
+    banner.className = "webrecan-banner";
+  }
+  // Sit above the first file so it scrolls with the files, not the page.
+  const spot = bannerSpot();
+  if (spot) {
+    if (banner.parentNode !== spot.parent || banner.nextSibling !== spot.before) spot.parent.insertBefore(banner, spot.before);
+  } else if (!banner.isConnected) {
+    const main = document.getElementById("main-content");
+    if (main?.parentNode) main.parentNode.insertBefore(banner, main);
+    else document.body.prepend(banner);
+  }
+  const signature = JSON.stringify([quality, previousFlag]);
+  if (banner.dataset.sig === signature) return; // nothing changed; don't touch the DOM
+  banner.dataset.sig = signature;
+  fillBanner();
+}
+
+/** Where the banner goes: just above the first file shown in the file viewer, else the top of the file pane. */
+const FILE_VIEW = '[class*="FileViewer" i], [class*="CodeViewer" i], [class*="code-viewer" i], .submissionFileViewer, pre';
+
+function bannerSpot() {
+  const first = [...document.querySelectorAll(FILE_VIEW)].find(
+    (node) => !node.closest(".webrecan-ctl, .webrecan-pop, .webrecan-banner, #webrecan-panel"),
+  );
+  if (first?.parentNode) return { parent: first.parentNode, before: first };
+  const anchor = document.querySelector(".webrecan-ctl");
+  for (let node = anchor?.parentElement; node && node !== document.body; node = node.parentElement) {
+    const overflow = getComputedStyle(node).overflowY;
+    if (overflow === "auto" || overflow === "scroll") return { parent: node, before: node.firstChild };
+  }
+  return null;
+}
+
+/** Scrolling one of the two boxes (either way) scrolls the other by the same amount. */
+function syncScroll(a, b) {
+  for (const [from, to] of [[a, b], [b, a]]) {
+    from.addEventListener("scroll", () => {
+      if (to.scrollTop !== from.scrollTop) to.scrollTop = from.scrollTop;
+      if (to.scrollLeft !== from.scrollLeft) to.scrollLeft = from.scrollLeft;
+    });
+  }
+}
+
+function fillBanner() {
+  const summary = el("summary");
+  const body = el("div", "body");
+  banner.classList.remove("is-ok", "is-bad", "is-pending");
+  banner.open = false;
+
+  // The checker decides which checks failed (it counts across all the files) and names them.
+  const failedChecks = quality.status === "done" ? quality.checks.filter((check) => check.failed) : [];
+
+  // Earlier submissions come first, in bold, so it can't be missed.
+  if (previousFlag) {
+    const row = el("div", "check fail previous");
+    row.append(el("span", "mark", "⚠"), el("strong", "label", previousFlag[0].toUpperCase() + previousFlag.slice(1)));
+    body.append(row);
+  }
+  for (const check of failedChecks) {
+    const row = el("div", "check fail");
+    row.append(el("span", "mark", "✗"), el("span", "label", check.label), el("span", "files", check.files.join(", ")));
+    body.append(row);
+    // Duplicated code: a dropdown per repeated snippet.
+    for (const item of check.items || []) {
+      const dup = el("details", "dup");
+      const copies = el("div", "copies"); // the two copies, side by side
+      const left = el("pre", "", item.snippet);
+      const right = el("pre", "", item.other);
+      copies.append(left, right);
+      dup.append(el("summary", "", `${item.file}: ${item.where}`), copies);
+      syncScroll(left, right);
+      body.append(dup);
+    }
+  }
+
+  if (previousFlag || failedChecks.length) {
+    const parts = [];
+    if (previousFlag) parts.push("Previous submission(s)");
+    if (failedChecks.length) parts.push("Code quality: some checks failed");
+    else if (quality.status === "pending") parts.push("checking code quality…");
+    banner.classList.add("is-bad");
+    summary.textContent = "⚠ " + parts.join(" · ");
+    banner.open = true; // problems are shown right away
+  } else if (quality.status === "pending") {
+    banner.classList.add("is-pending");
+    summary.textContent = "Checking code quality…";
+  } else if (quality.status === "error") {
+    banner.classList.add("is-pending");
+    summary.textContent = `Couldn't check code quality: ${quality.error}`;
+  } else {
+    banner.classList.add("is-ok");
+    summary.textContent = "✓ Code quality: all checks passed";
+  }
+
+  // Nothing to show (everything passed, or still working): the box can't be opened.
+  if (!body.children.length) {
+    banner.open = false;
+    summary.addEventListener("click", (event) => event.preventDefault());
+  }
+  banner.replaceChildren(summary, body);
 }
 
 // ---- the buttons ----
@@ -208,6 +388,7 @@ function makeControl(rec) {
   const info = document.createElement("button");
   info.type = "button";
   info.className = "webrecan-info";
+  info.hidden = !!rec.ignored; // test files have nothing to show
   info.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -222,12 +403,14 @@ function makeControl(rec) {
 function stateOf(rec) {
   const entry = analyses.get(rec.id);
   if (entry?.status === "error") return { flagged: false, tone: "error" };
-  if (entry?.status === "done" && entry.evaluation.flagged) return { flagged: true, tone: "flag" };
+  if (entry?.status === "done" && (entry.evaluation.flagged || tooLong(entry.evaluation))) return { flagged: true, tone: "flag" };
   return { flagged: false, tone: "" };
 }
 
 function paint(ctl) {
   if (!ctl.recording) return; // a stale copy; render() removes these
+  if (ctl.recording.ignored) return; // a test file: just the Run recan button, never flagged
+  ctl.dataset.state = analyses.get(ctl.recording.id)?.status ?? "pending"; // pending | done | error
   const state = stateOf(ctl.recording);
   const [run, info] = ctl.children;
   // The wrapper's classes set the color (text + border) of both buttons.
@@ -282,13 +465,6 @@ function togglePopover(ctl) {
   document.body.appendChild(pop);
   fillPopover(ctl);
 }
-
-const el = (tag, className, text) => {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-};
 
 function duration(seconds) {
   const total = Math.round(seconds);
@@ -362,6 +538,16 @@ function fillPopover(ctl) {
           ? `Under the ${MIN_ACTIVE_SECONDS / 60} minute minimum. Idle (no activity for 5+ seconds, or the editor not focused): ${duration(e.idleSeconds)}.`
           : `Idle (no activity for 5+ seconds, or the editor not focused): ${duration(e.idleSeconds)}.`,
       ),
+      ...(isProgressCheck(page.assignmentTitle)
+        ? [
+            row(
+              tooLong(e),
+              "Progress check time",
+              `${duration(e.totalSeconds)} total (idle included)`,
+              tooLong(e) ? `Over the ${MAX_PROGRESS_CHECK_SECONDS / 3600} hour limit for progress checks.` : undefined,
+            ),
+          ]
+        : []),
       row(
         e.flags.unapprovedPastes,
         "Unapproved pastes",
@@ -674,7 +860,6 @@ const AUTOGRADER_TEST = /previous\s+submission/i; // "Previous Submission(s)" an
 const PREVIOUS_COUNT = /you have made\s+(\d+)\s+previous\s+submission/i; // the test's output: "You have made 1 previous submissions."
 const STATUS_FAIL = /fail|error|incorrect/i; // a status field: "failed", "error", ...
 const TEXT_FAIL = /\b(fail|failed|failing)\b/i; // free text on the page: only an outright "failed"
-let autograderBox = null;
 
 /** Is this test-like object failed (true), passed (false), or can't we tell (null)? */
 function testVerdict(test) {
@@ -749,25 +934,9 @@ function previousSubmissionsFlag() {
   return count > 0 ? countMessage(count) : null;
 }
 
-function paintAutograderFlag() {
-  const message = previousSubmissionsFlag();
-  if (!message) {
-    autograderBox?.remove();
-    autograderBox = null;
-    return;
-  }
-  if (!autograderBox) {
-    autograderBox = document.createElement("div");
-    created.add(autograderBox);
-    autograderBox.className = "webrecan-autograder";
-    autograderBox.setAttribute("role", "alert");
-  }
-  autograderBox.textContent = message;
-  if (!autograderBox.isConnected) {
-    const main = document.getElementById("main-content");
-    if (main?.parentNode) main.parentNode.insertBefore(autograderBox, main);
-    else document.body.prepend(autograderBox);
-  }
+/** Remember what the autograder says about earlier submissions; the code quality box shows it. */
+function updatePreviousFlag() {
+  previousFlag = previousSubmissionsFlag()?.replace(/^⚠ Autograder:\s*/, "") ?? null;
 }
 
 // ---- placing the buttons ----
@@ -835,7 +1004,7 @@ let seenAt = Date.now();
 
 function render() {
   // Remove lifeless copies of our elements (see `created`); live ones are re-added below.
-  for (const node of document.querySelectorAll(".webrecan-ctl, .webrecan-pop, .webrecan-autograder, #webrecan-panel")) {
+  for (const node of document.querySelectorAll(".webrecan-ctl, .webrecan-pop, .webrecan-banner, .webrecan-autograder, #webrecan-panel")) {
     if (!created.has(node)) node.remove();
   }
   page = currentPage();
@@ -849,6 +1018,8 @@ function render() {
   }
 
   if (recordings.length) requestStarterInfo();
+  prefetchRecordings(recordings);
+  requestQuality(page.sources);
 
   const placed = [];
   const unplaced = [];
@@ -875,12 +1046,13 @@ function render() {
   for (const rec of [...placed, ...fallback]) requestAnalysis(rec);
   renderFallback(fallback);
   paintAll();
-  paintAutograderFlag();
+  updatePreviousFlag();
+  paintBanner();
 }
 
 // React redraws the list, which can drop our buttons, so re-check after changes
 // (ignoring changes we made ourselves).
-const ours = ".webrecan-ctl, .webrecan-pop, .webrecan-autograder, #webrecan-panel";
+const ours = ".webrecan-ctl, .webrecan-pop, .webrecan-banner, .webrecan-autograder, #webrecan-panel";
 let timer;
 new MutationObserver((mutations) => {
   const foreign = mutations.some((m) => !(m.target.nodeType === 1 ? m.target : m.target.parentElement)?.closest(ours));

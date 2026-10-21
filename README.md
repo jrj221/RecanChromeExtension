@@ -11,6 +11,10 @@ It also checks every recording when the page opens. A button turns **red** when 
 2 minutes of non-idle time, has unapproved pastes, or doesn't start with the assignment's starter code, and an
 **?** button next to every recording shows the details, and says why when it's red. See [When does a Run Recan button turn red?](#when-does-a-run-recan-button-turn-red)
 
+It also checks the student's Python files for code quality. A small box at the top of the page is **green** when every
+`.py` file in the submission passes. If not, it's a red **warning**; click it to see each check and which files failed it.
+See [Code quality checker](#code-quality-checker). This is separate from recan.
+
 This repo contains only the extension. It does not contain recan itself. See the `Install` section for more info.
 
 ## Contents
@@ -18,6 +22,7 @@ This repo contains only the extension. It does not contain recan itself. See the
 - [Install](#install)
   - [What `setup.mjs` does](#what-setupmjs-does)
   - [Optional: starter-code checks](#optional-starter-code-checks)
+- [Code quality checker](#code-quality-checker)
 - [Testing](#testing)
 - [Layout](#layout)
 - [FAQ](#faq)
@@ -28,6 +33,8 @@ This repo contains only the extension. It does not contain recan itself. See the
   - [How does it know which starter code to use?](#how-does-it-know-which-starter-code-to-use)
   - [What if the starter-code script says unauthorized?](#what-if-the-starter-code-script-says-unauthorized)
   - [How does the extension check recordings before I click?](#how-does-the-extension-check-recordings-before-i-click)
+  - [Is the code quality checker part of recan?](#is-the-code-quality-checker-part-of-recan)
+  - [How is a function's length counted?](#how-is-a-functions-length-counted)
   - [What happens when I click Run Recan?](#what-happens-when-i-click-run-recan)
   - [Is the recording saved or uploaded anywhere?](#is-the-recording-saved-or-uploaded-anywhere)
   - [Why run recan's Python in the browser instead of rewriting it in JavaScript?](#why-run-recans-python-in-the-browser-instead-of-rewriting-it-in-javascript)
@@ -92,6 +99,51 @@ autograder does). See [How does it know which starter code to use?](#how-does-it
 
 <br>
 
+## Code quality checker
+
+`checker/quality.py` scans the `.py` files in a submission. On a Gradescope submission page (the grading page, or the assignment's submission page with `?view=files`) the extension runs it on
+every Python file listed there and shows one small box at the top of the page:
+
+- **Green**, "✓ Code quality: all checks passed", when every check passes.
+- A red **warning**, "⚠ Code quality: some checks failed", otherwise. It opens by itself and lists only the failed checks,
+  with the files that failed each. It doesn't say why; for the exact lines and reasons, run the checker from a terminal
+  (below). When everything passes there is nothing to show, so the green box can't be opened.
+- If the autograder's **Previous Submission(s)** test shows earlier submissions (see below), the box turns red and starts
+  with a bold line saying so, above the failed checks.
+
+Checks are judged across **all the files together**, not file by file. Indentation and blank-line slips are common and
+minor, so each of those two only fails once it has happened **more than twice in total** (three or more, however they're
+spread over the files). Nested while loops and long functions fail on the first one.
+
+| Check | What passes |
+|---|---|
+| **Indentation** | Every block is indented exactly 4 spaces deeper than the line that opens it. Flags extra indents (8 spaces where 4 belong, or an indent after a line that doesn't open a block), and too-small indents. A tab counts as 4 spaces, so one tab per level is fine. A statement that wraps onto more lines (a long `print(...)`, a list, a backslash continuation) can indent its continuation lines any way it likes. **Fails only if it happens more than twice across all the files together.** |
+| **2 blank lines between functions** | The last import at the top and the first function, two functions that follow each other, or a function followed by the `if __name__ == "__main__":` block, have exactly 2 blank lines between them (not more, not fewer). Comments and decorators directly above a function (or that `if`) count as part of it. Methods inside classes and nested functions aren't checked. **Fails only if it happens more than twice across all the files together,** except that no blank line at all, or 5 or more, fails it right away. |
+| **No nested while loops** | No `while` loop contains another `while` loop, at any depth. A function defined inside a loop starts fresh. |
+| **Duplicated code** | Within a file: 3+ identical lines that appear twice, or 4+ lines that appear twice and differ only in string contents, numbers and variable names (so they could be one function with parameters). Method calls and called functions have to match exactly. Blank lines, comments and lines like `else:` or `return` don't count. Fails on the first one, and the box shows both copies side by side in a dropdown. The limits are constants at the top of `checker/quality.py`. |
+| **Functions longer than 20 lines** | Every function is **shorter than 20 lines**, so a function of 20 lines or more fails the check. |
+
+**Test files are ignored.** Any file whose name starts with `test` (`test_calculator.py`, `tests.py`, ...) isn't checked, so
+the box never counts it. When you scan a folder from the command line they're skipped too (a file you name yourself is
+still checked).
+
+A file that Python can't read at all (a syntax error) isn't skipped: it adds a fifth row, "Python can't read the file",
+to the warning.
+
+The limits live at the top of `checker/quality.py` (`INDENT_WIDTH`, `BLANK_LINES_BETWEEN_FUNCTIONS`, `MAX_FUNCTION_LINES`,
+and `ALLOWED_VIOLATIONS`, the "more than twice" allowance for the two spacing checks).
+
+It also runs on its own, with just Python and no extension or recan:
+
+```
+python3 checker/quality.py <file-or-folder> [more ...]
+```
+
+It prints `file:line: [rule] message` for each issue, then one line per check (ok or FAIL, with how many it found and which
+files), and exits with 1 if any check failed. Like the box, it counts slips across all the files you give it.
+
+<br>
+
 ## Testing
 
 ```
@@ -109,6 +161,13 @@ including rebuilding the whole file at a paste (with a folder, it also compares 
 > [!WARNING]
 > Keep real recordings out of this repo; they're student work (`*.gz` is git-ignored).
 
+The code quality checker has its own tests, which need only Python:
+
+```
+python3 test/quality_test.py                                # the rules, case by case
+node test/quality-parity.mjs <folder of .py files>          # same results in the extension's Python as in regular Python
+```
+
 <br>
 
 ## Layout
@@ -116,16 +175,18 @@ including rebuilding the whole file at a paste (with a folder, it also compares 
 ```
 manifest.json        extension definition (Gradescope + its S3 recording storage, plus storage and offscreen)
 icons/               blue "R" icon (icon.svg is the source; the PNGs are rendered from it)
-src/                 content.js + content.css   the buttons, red flag and "?" popover on Gradescope
+checker/             quality.py                 the code quality checks (standalone, standard library only)
+src/                 content.js + content.css   the buttons, red flag, "?" popover and code quality box on Gradescope
                      background.js              routes messages, remembers your starter-code choices
                      offscreen.*                the hidden page that keeps Python + recan loaded
                      runner.js                  runs recan's own command line inside Python
                      flags.js                   turns recan's analysis into the red-flag checks
                      starter.js                 optional starter-code lookup and matching by recording name
+                     quality.js                 runs checker/quality.py in the Python session
                      viewer.*, sandbox.*        the tab that shows the recan player
 shims/               pydivsufsort.py stand-in
 scripts/             setup.mjs and its steps; fetch-starter-code.mjs (optional)
-test/                parity.mjs, flags.mjs, gen_synthetic.py
+test/                parity.mjs, flags.mjs, gen_synthetic.py, quality_test.py, quality-parity.mjs
 vendor/  upstream/  recan-files.json   downloaded or generated by setup (git-ignored)
 starter-code-source/  starter-code.json   from the optional starter-code script (git-ignored)
 ```
@@ -158,15 +219,18 @@ When the recording has any of these (each recording is checked on its own):
 - **A starter-code mismatch.** The recording doesn't begin with the assignment's starter code. This is only checked if
   you set up [the optional starter-code step](#optional-starter-code-checks).
 
+Recordings whose names start with `test` (like `test_words.recording.jsonl.gz`) are left out of this: they keep their
+**Run recan** button, but are never analyzed or flagged and have no **?** button.
+
 Everything is worked out by recan itself (`recan summary --json`); the extension only applies the 2 minute rule and
 counts the results. The 2 minutes is `MIN_ACTIVE_SECONDS` in `src/flags.js` (and `src/content.js`, which can't share
 modules with it).
 
 ---
 
-### What is the red "Previous submissions" box?
+### How does the Previous submissions flag show up?
 
-On a submission page, a small red box appears at the top when the autograder's **Previous Submission(s)** test shows the
+On a submission page, a bold line appears at the top of the red code quality box (on `main`, which has no quality box, it's a small red box of its own) when the autograder's **Previous Submission(s)** test shows the
 student already submitted before: either the test clearly failed, or its output ("You have made N previous submissions.")
 says N is above 0 (that test is scored 0/0, so its score can't say). The extension reads this from the data the page embeds,
 and if it isn't there, from the results drawn on the page. The test's name and the output wording are `AUTOGRADER_TEST` and
@@ -251,7 +315,24 @@ extension page (`src/offscreen.html`) that stays open and keeps Python and recan
 Recan** is fast afterwards: the recording and the Python session are already there. It's also why the extension asks for
 the `offscreen` permission and needs Chrome 116 or newer. Results are cached per file, so revisiting a submission is
 instant. Opening a page downloads that submission's recordings (a few hundred KB each) from Gradescope's storage, the same
-files the page already links to.
+files the page already links to. That download starts right away, before the file list is drawn, so it can include a
+recording that the page ends up not showing (it is never analyzed or displayed).
+
+---
+
+### Is the code quality checker part of recan?
+
+No. It's a separate module (`checker/quality.py`) that uses only Python's standard library. Recan doesn't know about it and
+it doesn't use recan's output. The extension happens to run both in the same Python session, because that session is
+already loaded, but it works the same from a terminal.
+
+---
+
+### How is a function's length counted?
+
+In lines of code, from the `def` line through the end of the function. **Blank lines, comment lines and the docstring are not
+counted.** A function has to be **shorter than 20** lines, so 19 is fine and 20 is flagged. Decorators above the `def`
+aren't counted. Nested functions and methods are each measured on their own.
 
 The submission's recordings are analyzed **together** in one `recan summary` run (the player still opens one recording at a
 time). That's because recan checks every paste against what all the recordings in the run had written earlier: code typed in
@@ -344,10 +425,12 @@ lives in one place, `TA_OPTIONS` in `src/runner.js`.
 
 ### Why does the first page take a moment?
 
-Starting Pyodide takes about a second and running recan takes a fraction of a second per recording. That happens once,
-when you first open a submission page, and the buttons turn red as each recording finishes. After that the Python session
-stays loaded, so clicking is quick. The viewer logs `[webrecan] …: N ms` timings to its DevTools console if you want to
-see where time goes.
+Python has to start once per browser session (about a second, most of the wait), then recan runs on each recording in a
+fraction of a second. To hide that, the extension starts Python as soon as a Gradescope page *begins* loading, loads recan's
+code while doing so, and downloads the page's recordings while Gradescope is still drawing its file list. On a page
+that takes a second or two to load, the flags are usually ready within half a second of the page appearing. After that the
+Python session stays loaded and results are remembered per file, so reopening a submission is nearly instant. The viewer
+logs `[webrecan] …: N ms` timings to its DevTools console if you want to see where time goes.
 
 ---
 

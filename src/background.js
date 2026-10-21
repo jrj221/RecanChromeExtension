@@ -53,6 +53,14 @@ async function callEngine(msg) {
   }
 }
 
+// Start Python as soon as a Gradescope page begins loading, so it is ready (or nearly) by the time
+// the page has drawn its file list. Asking again is harmless: the engine only starts once.
+chrome.tabs.onUpdated.addListener((_tabId, change, tab) => {
+  if (change.status === "loading" && /^https:\/\/www\.gradescope\.com(:\d+)?\//.test(change.url ?? tab.url ?? "")) {
+    callEngine({ op: "warm" }).catch(() => {});
+  }
+});
+
 // ---- starter code (optional) ----
 
 /** Which starter folder applies to this assignment, plus what the picker needs. */
@@ -92,6 +100,18 @@ const handlers = {
     const starter = await starterInfo(msg.assignmentId, msg.recordingNames);
     const res = await callEngine({ op: "summary", url: msg.url, name: msg.name, fileId: msg.fileId, siblings: msg.siblings, folderId: starter.folderId });
     return { evaluation: res.evaluation, starter: { enabled: starter.enabled, folderId: starter.folderId, source: starter.source } };
+  },
+
+  // Page script: download these recordings now, so they are ready when analysis starts.
+  async prefetch(msg) {
+    await callEngine({ op: "prefetch", urls: msg.urls });
+    return {};
+  },
+
+  // Code-quality checks for the submission's .py files (not related to recan).
+  async quality(msg) {
+    const res = await callEngine({ op: "quality", files: msg.files });
+    return { results: res.results, checks: res.checks };
   },
 
   // Page script: open the viewer tab for this recording.
