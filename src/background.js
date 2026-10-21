@@ -94,8 +94,7 @@ const handlers = {
   // Page script: open the viewer tab for this recording.
   async "open-recording"(msg) {
     const viewer = new URL(chrome.runtime.getURL("src/viewer.html"));
-    for (const key of ["url", "name", "fileId", "assignmentId"]) viewer.searchParams.set(key, msg[key] ?? "");
-    viewer.searchParams.set("siblings", JSON.stringify(msg.siblings ?? []));
+    for (const key of ["url", "name", "assignmentId"]) viewer.searchParams.set(key, msg[key] ?? "");
     viewer.searchParams.set("recordingNames", JSON.stringify(msg.recordingNames ?? []));
     await chrome.tabs.create({ url: viewer.href });
     return {};
@@ -112,7 +111,7 @@ const handlers = {
   },
   async render(msg) {
     const starter = await starterInfo(msg.assignmentId, msg.recordingNames);
-    const res = await callEngine({ op: "view", url: msg.url, name: msg.name, fileId: msg.fileId, siblings: msg.siblings, folderId: starter.folderId });
+    const res = await callEngine({ op: "view", url: msg.url, name: msg.name, folderId: starter.folderId });
     return { html: res.html };
   },
 };

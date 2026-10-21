@@ -132,23 +132,11 @@ async function handle(msg) {
       }
     }
     case "view": {
-      // The player is made from all of the submission's recordings (so a paste moved from another file shows as
-      // internal here too), with the clicked one first. If that fails, just this recording.
-      const others = (msg.siblings ?? []).filter((s) => s.fileId !== msg.fileId).sort((a, b) => (a.fileId < b.fileId ? -1 : a.fileId > b.fileId ? 1 : 0));
-      const group = [{ fileId: msg.fileId, url: msg.url, name: msg.name }, ...others];
-      const starterCode = await starterFiles(msg.folderId);
-      const render = async (list) => {
-        const recordings = await Promise.all(list.map(async (s, i) => ({ name: `${String(i).padStart(3, "0")}_${s.name}`, bytes: await getRecording(s.url) })));
-        return serial(async () => generateHtml(await getPython(), recordings, { ...TA_OPTIONS, starterCode }));
-      };
-      let html;
-      try {
-        html = await render(group);
-      } catch (e) {
-        if (group.length === 1) throw e;
-        console.warn("[webrecan] building the player from all recordings failed; using this one alone:", e);
-        html = await render(group.slice(0, 1));
-      }
+      const [bytes, starterCode] = await Promise.all([getRecording(msg.url), starterFiles(msg.folderId)]);
+      const html = await serial(async () => {
+        const py = await getPython();
+        return generateHtml(py, [{ name: msg.name, bytes }], { ...TA_OPTIONS, starterCode });
+      });
       return { html };
     }
     default:

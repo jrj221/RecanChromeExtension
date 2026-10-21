@@ -24,7 +24,7 @@ const lap = (label) => console.info(`[webrecan] ${label}: ${Math.round(performan
 try {
   const params = new URLSearchParams(location.search);
   const name = params.get("name") || "recording.jsonl.gz";
-  const job = { url: params.get("url"), name, fileId: params.get("fileId"), siblings: JSON.parse(params.get("siblings") || "[]"), assignmentId: params.get("assignmentId"), recordingNames: JSON.parse(params.get("recordingNames") || "[]") };
+  const job = { url: params.get("url"), name, assignmentId: params.get("assignmentId"), recordingNames: JSON.parse(params.get("recordingNames") || "[]") };
   document.title = `Recording Playback — ${name}`;
   $("filename").textContent = name;
 
