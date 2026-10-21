@@ -620,7 +620,8 @@ document.addEventListener("keydown", (event) => {
 // is found in the page's embedded data first (the React props), then, if it isn't there, in the
 // visible results. Anything that isn't clearly a failure shows nothing.
 
-const AUTOGRADER_TEST = /previous\s+submissions/i;
+const AUTOGRADER_TEST = /previous\s+submission/i; // "Previous Submission(s)" and "Previous Submissions"
+const PREVIOUS_COUNT = /you have made\s+(\d+)\s+previous\s+submission/i; // the test's output: "You have made 1 previous submissions."
 const STATUS_FAIL = /fail|error|incorrect/i; // a status field: "failed", "error", ...
 const TEXT_FAIL = /\b(fail|failed|failing)\b/i; // free text on the page: only an outright "failed"
 let autograderBox = null;
@@ -675,22 +676,32 @@ function findTestInPage() {
   return null;
 }
 
-function previousSubmissionsFailed() {
+/** The message for the red box, or null when there's nothing to flag. */
+function previousSubmissionsFlag() {
+  const failedMessage = "⚠ Autograder: the “Previous Submission(s)” test failed";
+  const countMessage = (n) => `⚠ Autograder: ${n} previous submission${n === 1 ? "" : "s"}`;
+
   for (const node of document.querySelectorAll("[data-react-props]")) {
     const raw = node.getAttribute("data-react-props") || "";
-    if (!/previous\s+submissions/i.test(raw)) continue; // cheap check before parsing a big blob
+    if (!AUTOGRADER_TEST.test(raw)) continue; // cheap check before parsing a big blob
     try {
-      const verdict = findTestInData(JSON.parse(raw));
-      if (verdict !== null) return verdict;
+      if (findTestInData(JSON.parse(raw)) === true) return failedMessage;
     } catch {
       // not JSON; ignore
     }
+    // A test scored 0/0 has no pass or fail to read, but its output says how many earlier submissions there were.
+    const count = Number(raw.match(PREVIOUS_COUNT)?.[1] ?? 0);
+    if (count > 0) return countMessage(count);
   }
-  return findTestInPage() === true;
+
+  if (findTestInPage() === true) return failedMessage;
+  const count = Number(document.body.textContent.match(PREVIOUS_COUNT)?.[1] ?? 0);
+  return count > 0 ? countMessage(count) : null;
 }
 
 function paintAutograderFlag() {
-  if (!previousSubmissionsFailed()) {
+  const message = previousSubmissionsFlag();
+  if (!message) {
     autograderBox?.remove();
     autograderBox = null;
     return;
@@ -700,8 +711,8 @@ function paintAutograderFlag() {
     created.add(autograderBox);
     autograderBox.className = "webrecan-autograder";
     autograderBox.setAttribute("role", "alert");
-    autograderBox.textContent = "⚠ Autograder: the “Previous submissions” test failed";
   }
+  autograderBox.textContent = message;
   if (!autograderBox.isConnected) {
     const main = document.getElementById("main-content");
     if (main?.parentNode) main.parentNode.insertBefore(autograderBox, main);
