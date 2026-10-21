@@ -266,8 +266,11 @@ unapproved one. If the group can't be analyzed (say one recording is damaged), e
 3. The viewer tab (`src/viewer.js`) asks the hidden engine page (`src/offscreen.js`) to start Python and fetch the
    recording. Usually both are already done.
 4. The engine calls recan's own command-line entry point, as if you had typed
-   `recan view --no-open <recording> [--starter-code <starter files>] --exclude .html` (`src/runner.js`). recan writes
-   its player page into Pyodide's in-memory file system.
+   `recan view --no-open <recordings> [--starter-code <starter files>] --exclude .html` (`src/runner.js`), giving it
+   **all of the submission's recordings** (the one you clicked first). recan writes its player page into Pyodide's
+   in-memory file system. The player therefore shows every file of the submission (recan lists them in time order), and a
+   paste of code that was written in another file shows as internal, not unapproved. If that fails, it falls back to
+   just the clicked recording.
 5. The page is shown in a sandboxed frame (`src/sandbox.html`).
 
 ---

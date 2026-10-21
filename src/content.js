@@ -79,6 +79,9 @@ const send = (message) =>
     return res;
   });
 
+/** All the recordings of this submission: analyzed together so a paste of code that came from another file counts as internal. */
+const siblingsOf = () => page.recordings.filter((r) => !r.ignored).map((r) => ({ fileId: r.id, url: r.url, name: r.name }));
+
 function requestAnalysis(rec) {
   if (analyses.has(rec.id)) return;
   analyses.set(rec.id, { status: "pending" });
@@ -87,8 +90,7 @@ function requestAnalysis(rec) {
     url: rec.url,
     name: rec.name,
     fileId: rec.id,
-    // All the recordings of this submission: they're analyzed together so a paste of code that came from another file counts as internal.
-    siblings: page.recordings.filter((r) => !r.ignored).map((r) => ({ fileId: r.id, url: r.url, name: r.name })),
+    siblings: siblingsOf(),
     assignmentId: page.assignmentId,
     recordingNames: page.recordingNames,
   })
@@ -127,7 +129,7 @@ const created = new WeakSet();
 function openRecording(rec, button) {
   button.disabled = true;
   button.textContent = "Opening…";
-  send({ type: "open-recording", url: rec.url, name: rec.name, assignmentId: page.assignmentId, recordingNames: page.recordingNames })
+  send({ type: "open-recording", url: rec.url, name: rec.name, fileId: rec.id, siblings: siblingsOf(), assignmentId: page.assignmentId, recordingNames: page.recordingNames })
     .then(() => (button.textContent = "Run recan"))
     .catch((e) => (button.textContent = "Failed: " + e.message))
     .finally(() => (button.disabled = false));
