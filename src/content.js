@@ -265,9 +265,18 @@ function paintBanner() {
 /** Where the banner goes: just above the first file shown in the file viewer, else the top of the file pane. */
 const FILE_VIEW = '[class*="FileViewer" i], [class*="CodeViewer" i], [class*="code-viewer" i], .submissionFileViewer, pre';
 
+/** Is this inside the autograder's output (which has its own <pre>), not the student's files? */
+function inAutograderOutput(node) {
+  let ancestor = node.parentElement;
+  for (let depth = 0; ancestor && depth < 6; depth++, ancestor = ancestor.parentElement) {
+    if (/autograder\s+(output|results)/i.test((ancestor.textContent || "").slice(0, 400))) return true;
+  }
+  return false;
+}
+
 function bannerSpot() {
   const first = [...document.querySelectorAll(FILE_VIEW)].find(
-    (node) => !node.closest(".webrecan-ctl, .webrecan-pop, .webrecan-banner, #webrecan-panel"),
+    (node) => !node.closest(".webrecan-ctl, .webrecan-pop, .webrecan-banner, #webrecan-panel") && (node.tagName !== "PRE" || !inAutograderOutput(node)),
   );
   if (first?.parentNode) return { parent: first.parentNode, before: first };
   const anchor = document.querySelector(".webrecan-ctl");
@@ -895,13 +904,22 @@ function findTestInData(node, depth = 0) {
 }
 
 /** The same question answered from what's drawn on the page: the row/section that names the test. */
+const OUR_ELEMENTS = ".webrecan-ctl, .webrecan-pop, .webrecan-banner, .webrecan-autograder, #webrecan-panel";
+
+/** A copy of the element without anything this extension added to it (our own text must never be read as the page's). */
+function withoutOurs(element) {
+  const copy = element.cloneNode(true);
+  copy.querySelectorAll(OUR_ELEMENTS).forEach((node) => node.remove());
+  return copy;
+}
+
 function findTestInPage() {
   const named = [...document.querySelectorAll("li, tr, div, section, p, span, h3, h4, h5")]
-    .filter((node) => !node.closest(".webrecan-autograder") && AUTOGRADER_TEST.test(node.textContent || "") && (node.textContent || "").length < 600)
+    .filter((node) => !node.closest(OUR_ELEMENTS) && AUTOGRADER_TEST.test(node.textContent || "") && (node.textContent || "").length < 600)
     // The smallest elements that mention the test; their parents mention it too.
-    .filter((node) => ![...node.children].some((child) => AUTOGRADER_TEST.test(child.textContent || "")));
+    .filter((node) => ![...node.children].some((child) => !child.matches(OUR_ELEMENTS) && AUTOGRADER_TEST.test(child.textContent || "")));
   for (const node of named) {
-    const row = node.closest("li, tr, [class*='test' i], [class*='result' i]") || node.parentElement || node;
+    const row = withoutOurs(node.closest("li, tr, [class*='test' i], [class*='result' i]") || node.parentElement || node);
     const text = row.textContent || "";
     const score = text.match(/(\d+(?:\.\d+)?)\s*(?:\/|out of)\s*(\d+(?:\.\d+)?)/i);
     if (score && Number(score[2]) > 0) return Number(score[1]) < Number(score[2]);
