@@ -15,6 +15,10 @@ It also checks the student's Python files for code quality. A small box at the t
 `.py` file in the submission passes. If not, it's a red **warning**; click it to see each check and which files failed it.
 See [Code quality checker](#code-quality-checker). This is separate from recan.
 
+Files whose names begin with `test` (case-insensitive), including their recordings, are hidden from the
+submission file view. Other files keep their normal viewing and download controls, and their recordings
+keep the **Run recan** and **?** buttons. The filter also applies when moving between students.
+
 This repo contains only the extension. It does not contain recan itself. See the `Install` section for more info.
 
 ## Contents
@@ -219,8 +223,8 @@ When the recording has any of these (each recording is checked on its own):
 - **A starter-code mismatch.** The recording doesn't begin with the assignment's starter code. This is only checked if
   you set up [the optional starter-code step](#optional-starter-code-checks).
 
-Recordings whose names start with `test` (like `test_words.recording.jsonl.gz`) are left out of this: they keep their
-**Run recan** button, but are never analyzed or flagged and have no **?** button.
+Recordings whose names start with `test` (like `test_words.recording.jsonl.gz`) are hidden along with the other
+test files. They are never analyzed or flagged and don't appear in the fallback recordings panel.
 
 Everything is worked out by recan itself (`recan summary --json`); the extension only applies the 2 minute rule and
 counts the results. The 2 minutes is `MIN_ACTIVE_SECONDS` in `src/flags.js` (and `src/content.js`, which can't share

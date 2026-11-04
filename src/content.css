@@ -1,3 +1,6 @@
+/* Keep React's file nodes intact while hiding test files and their previews. */
+[data-webrecan-test-file] { display: none !important; }
+
 /* Both buttons are outlined, never filled: the color (blue, red when flagged) is used only for
    the text/glyph and the border. */
 .webrecan-ctl { --tone: #1a73e8; --tint: #e8f0fe; display: inline-flex; align-items: center; gap: 6px;
