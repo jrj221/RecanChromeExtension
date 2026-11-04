@@ -459,6 +459,11 @@ class FunctionLength(unittest.TestCase):
         doc = '    """Docs\n    over\n    three lines."""\n'
         self.assertEqual(rules("def f():\n" + doc + padding), [])  # 10 code lines
 
+    def test_bare_triple_quoted_strings_used_as_comments_are_not_counted(self):
+        block = '    """\n    old = 1\n    more = 2\n    """\n'
+        source = "def f():\n" + "    x = 1\n" * 10 + block * 4  # 11 code lines; the strings span 16 more
+        self.assertEqual(rules(source), [])
+
     def test_only_code_lines_count_toward_the_limit(self):
         padding = "    x = 1\n\n    # note\n" * 19  # 19 code lines + def = 20
         self.assertEqual(rules("def f():\n" + padding), [("function-length", 1)])

@@ -330,8 +330,8 @@ already loaded, but it works the same from a terminal.
 
 ### How is a function's length counted?
 
-In lines of code, from the `def` line through the end of the function. **Blank lines, comment lines and the docstring are not
-counted.** A function has to be **shorter than 20** lines, so 19 is fine and 20 is flagged. Decorators above the `def`
+In lines of code, from the `def` line through the end of the function. **Blank lines, comment lines, the docstring and any other bare string
+(a triple-quoted block used as a comment) are not counted.** A function has to be **shorter than 20** lines, so 19 is fine and 20 is flagged. Decorators above the `def`
 aren't counted. Nested functions and methods are each measured on their own.
 
 The submission's recordings are analyzed **together** in one `recan summary` run (the player still opens one recording at a

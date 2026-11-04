@@ -23,7 +23,8 @@ The checks, and the judgment calls where the rules leave room for interpretation
                    if/for/try). A nested function or class starts fresh.
   function-length  Every function must be shorter than MAX_FUNCTION_LINES. The length is counted
                    in lines of code, from the `def` line to the end of the function. Blank lines,
-                   comment lines and the docstring are not counted.
+                   comment lines, the docstring and other bare strings
+                   (triple-quoted blocks used as comments) are not counted.
   duplication      Code that should be one function, within a file: a run of MIN_DUPLICATE_LINES
                    or more identical lines that appears twice, or a run of MIN_SIMILAR_LINES or
                    more that appears twice and differs only in string contents, numbers and
@@ -231,11 +232,11 @@ def _check_nested_while(tree: ast.Module) -> list[Issue]:
 # ---- function length ----
 
 def _code_line_count(node: ast.AST, lines: list[str]) -> int:
-    """Lines of the function that carry code: not blank, not a comment, not the docstring."""
+    """Lines of the function that carry code: not blank, not a comment, not a docstring or any other bare string (a triple-quoted block used as a comment)."""
     skip: set[int] = set()
-    first = node.body[0]
-    if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
-        skip = set(range(first.lineno, first.end_lineno + 1))
+    for child in ast.walk(node):
+        if isinstance(child, ast.Expr) and isinstance(child.value, ast.Constant) and isinstance(child.value.value, str):
+            skip.update(range(child.lineno, child.end_lineno + 1))
     count = 0
     for number in range(node.lineno, node.end_lineno + 1):
         text = lines[number - 1].strip()
