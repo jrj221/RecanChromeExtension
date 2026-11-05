@@ -16,6 +16,8 @@ const PY = /\.py$/i;
 // is_ignored in checker/quality.py.
 const isTestFile = (path) => /^test/i.test(String(path).split("/").pop());
 const MARK = "data-webrecan";
+// Everything this extension adds to the page; its own text and elements must never be read as the page's.
+const OUR_ELEMENTS = ".webrecan-ctl, .webrecan-pop, .webrecan-banner, .webrecan-autograder, #webrecan-panel";
 const MIN_ACTIVE_SECONDS = 2 * 60; // keep in sync with flags.js (content scripts can't import modules)
 // Progress checks are meant to be short: a total recording time (idle included) over this is flagged.
 const MAX_PROGRESS_CHECK_SECONDS = 2 * 60 * 60;
