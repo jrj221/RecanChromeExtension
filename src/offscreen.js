@@ -5,7 +5,7 @@ import { loadPyodide } from "../vendor/pyodide/pyodide.mjs";
 import { evaluateSession, evaluateSummaryJson } from "./flags.js";
 import { checkQuality, mountChecker, summarizeQuality } from "./quality.js";
 import { TA_OPTIONS, generateHtml, generateSummary, mountRecan } from "./runner.js";
-import { loadIndex, loadStarterFiles } from "./starter.js";
+import { loadIndex, loadInstructions, loadStarterFiles, loadTestOutput } from "./starter.js";
 
 const readBytes = async (path) => {
   const res = await fetch(chrome.runtime.getURL(path));
@@ -65,6 +65,16 @@ async function starterFiles(folderId) {
   return starterCache.get(folderId);
 }
 
+const approvedCache = new Map(); // folder id -> [text]: the instructions and the expected test output
+async function approvedPastes(folderId) {
+  if (!folderId) return [];
+  if (!approvedCache.has(folderId)) {
+    const [instructions, testOutput] = await Promise.all([loadInstructions(folderId), loadTestOutput(folderId)]);
+    approvedCache.set(folderId, [instructions, ...testOutput].filter((text) => text != null));
+  }
+  return approvedCache.get(folderId);
+}
+
 // recan runs synchronously inside Pyodide, so queue the runs one at a time.
 let queue = Promise.resolve();
 const serial = (job) => {
@@ -85,17 +95,18 @@ function analyzeGroup(siblings, folderId) {
   const key = `${siblings.map((s) => s.fileId).join(",")}|${folderId ?? ""}`;
   if (!groups.has(key)) {
     const promise = (async () => {
-      const [recordings, starterCode] = await Promise.all([
+      const [recordings, starterCode, approved] = await Promise.all([
         Promise.all(siblings.map(async (s, i) => ({
           // recan reads recordings in sorted order; the numbering keeps that the order we sent.
           name: `${String(i).padStart(3, "0")}_${s.name}`,
           bytes: await getRecording(s.url),
         }))),
         starterFiles(folderId),
+        approvedPastes(folderId),
       ]);
       const sessions = await serial(async () => {
         const py = await getPython();
-        return JSON.parse(generateSummary(py, recordings, { ...TA_OPTIONS, starterCode }));
+        return JSON.parse(generateSummary(py, recordings, { ...TA_OPTIONS, starterCode, approvedPastes: approved }));
       });
       if (sessions.length !== siblings.length) throw new Error("recan returned a different number of results than recordings");
       return new Map(siblings.map((s, i) => [s.fileId, evaluateSession(sessions[i])]));
@@ -111,10 +122,12 @@ const alone = new Map();
 async function analyzeAlone(msg) {
   const key = `${msg.fileId}|${msg.folderId ?? ""}`;
   if (!alone.has(key)) {
-    const [bytes, starterCode] = await Promise.all([getRecording(msg.url), starterFiles(msg.folderId)]);
+    const [bytes, starterCode, approved] = await Promise.all([
+      getRecording(msg.url), starterFiles(msg.folderId), approvedPastes(msg.folderId),
+    ]);
     alone.set(key, await serial(async () => {
       const py = await getPython();
-      return evaluateSummaryJson(generateSummary(py, [{ name: msg.name, bytes }], { ...TA_OPTIONS, starterCode }));
+      return evaluateSummaryJson(generateSummary(py, [{ name: msg.name, bytes }], { ...TA_OPTIONS, starterCode, approvedPastes: approved }));
     }));
   }
   return alone.get(key);
@@ -160,10 +173,12 @@ async function handle(msg) {
       return { results, checks };
     }
     case "view": {
-      const [bytes, starterCode] = await Promise.all([getRecording(msg.url), starterFiles(msg.folderId)]);
+      const [bytes, starterCode, approved] = await Promise.all([
+        getRecording(msg.url), starterFiles(msg.folderId), approvedPastes(msg.folderId),
+      ]);
       const html = await serial(async () => {
         const py = await getPython();
-        return generateHtml(py, [{ name: msg.name, bytes }], { ...TA_OPTIONS, starterCode });
+        return generateHtml(py, [{ name: msg.name, bytes }], { ...TA_OPTIONS, starterCode, approvedPastes: approved });
       });
       return { html };
     }

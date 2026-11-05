@@ -54,3 +54,74 @@ export async function loadStarterFiles(index, folderId) {
     }),
   );
 }
+
+// ---- instructions (optional, separate from the starter code) ----
+// Only does anything if scripts/fetch-instructions.mjs has been run, which creates instructions.json.
+
+let instructionsIndexPromise;
+function loadInstructionsIndex() {
+  return (instructionsIndexPromise ??= (async () => {
+    try {
+      const res = await fetch(chrome.runtime.getURL("instructions.json"));
+      return res.ok ? await res.json() : null;
+    } catch {
+      return null;
+    }
+  })());
+}
+
+/**
+ * The instructions.md text for an assignment (the same id as a starter folder), or null when the
+ * script hasn't been run or the assignment has none. recan gets it as --approved-pastes, so pasting
+ * the sample output from the instructions isn't counted as an unapproved paste.
+ */
+export async function loadInstructions(folderId) {
+  const src = (await loadInstructionsIndex())?.assignments?.[folderId];
+  if (!src) return null;
+  const res = await fetch(chrome.runtime.getURL(src));
+  if (!res.ok) throw new Error(`${src}: HTTP ${res.status} (re-run scripts/fetch-instructions.mjs?)`);
+  return res.text();
+}
+
+// ---- test output (optional, separate from the starter code) ----
+// Only does anything if scripts/fetch-test-output.mjs has been run, which creates test-output.json.
+
+let testOutputIndexPromise;
+function loadTestOutputIndex() {
+  return (testOutputIndexPromise ??= (async () => {
+    try {
+      const res = await fetch(chrome.runtime.getURL("test-output.json"));
+      return res.ok ? await res.json() : null;
+    } catch {
+      return null;
+    }
+  })());
+}
+
+/**
+ * What Gradescope shows as "expected" for a test file, given the file's text. The autograder
+ * (byu_pytest_utils) removes its markup first: for a dialog file, <<text>> marks input the autograder
+ * types and is left as plain text; for both kinds, ``text;name;weight`` marks scored text and is left
+ * as just the text. An expected-output file only has the second kind of markup.
+ */
+export function expectedOutputText(raw, kind) {
+  const withoutInputMarks = kind === "dialog" ? raw.replace(/<<([\s\S]*?)>>/g, "$1") : raw;
+  return withoutInputMarks.replace(/``([\s\S]*?);([\s\S]+?);(\d+?)``/g, "$1");
+}
+
+/**
+ * The expected test output for an assignment (the same id as a starter folder), one string per file
+ * (a paste has to fall within a single one), or [] when the script hasn't been run or the assignment
+ * has none. recan gets these as --approved-pastes, so copying from the expected output Gradescope
+ * shows isn't counted as an unapproved paste.
+ */
+export async function loadTestOutput(folderId) {
+  const files = (await loadTestOutputIndex())?.assignments?.[folderId] ?? [];
+  return Promise.all(
+    files.map(async (file) => {
+      const res = await fetch(chrome.runtime.getURL(file.src));
+      if (!res.ok) throw new Error(`${file.src}: HTTP ${res.status} (re-run scripts/fetch-test-output.mjs?)`);
+      return expectedOutputText(await res.text(), file.kind);
+    }),
+  );
+}

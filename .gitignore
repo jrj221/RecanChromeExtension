@@ -1,8 +1,13 @@
 *.gz
 vendor/
 upstream/
+upstream-local/
 recan-files.json
 starter-code-source/
 starter-code.json
+instructions-source/
+instructions.json
+test-output-source/
+test-output.json
 __pycache__/
 *.pyc

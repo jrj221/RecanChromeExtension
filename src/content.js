@@ -861,100 +861,42 @@ document.addEventListener("keydown", (event) => {
 
 // ---- autograder: the "Previous submissions" test ----
 //
-// A small red box when the autograder results show the "Previous submissions" test failed. The test
-// is found in the page's embedded data first (the React props), then, if it isn't there, in the
-// visible results. Anything that isn't clearly a failure shows nothing.
+// Gradescope embeds every autograder test in the page's data (the React props) as { name, status, ... }.
+// This finds the "Previous Submission(s)" test there and flags it unless its status says "passed".
+// If the test can't be found, nothing is flagged. Nothing is read from the drawn page.
 
-const AUTOGRADER_TEST = /previous\s+submission/i; // "Previous Submission(s)" and "Previous Submissions"
-const PREVIOUS_COUNT = /you have made\s+(\d+)\s+previous\s+submission/i; // the test's output: "You have made 1 previous submissions."
-const STATUS_FAIL = /fail|error|incorrect/i; // a status field: "failed", "error", ...
-const TEXT_FAIL = /\b(fail|failed|failing)\b/i; // free text on the page: only an outright "failed"
+const PREVIOUS_TEST_NAME = /previous\s+submission/i; // "Previous Submission(s)" and "Previous Submissions"
 
-/** Is this test-like object failed (true), passed (false), or can't we tell (null)? */
-function testVerdict(test) {
-  for (const key of ["status", "result", "outcome", "state"]) {
-    const value = test[key];
-    if (typeof value === "string") {
-      if (/pass|success/i.test(value)) return false;
-      if (STATUS_FAIL.test(value)) return true;
-    }
-  }
-  for (const key of ["passed", "success"]) if (typeof test[key] === "boolean") return !test[key];
-  for (const [score, max] of [["score", "max_score"], ["points", "max_points"], ["score", "weight"], ["score", "possible"]]) {
-    if (typeof test[score] === "number" && typeof test[max] === "number" && test[max] > 0) return test[score] < test[max];
-  }
-  return null;
-}
-
-/** Walk parsed props looking for the test; the first one that says pass or fail decides. */
-function findTestInData(node, depth = 0) {
+/** The test named "Previous Submission(s)" in the parsed props, or null. */
+function findPreviousSubmissionsTest(node, depth = 0) {
   if (!node || typeof node !== "object" || depth > 12) return null;
-  if (!Array.isArray(node)) {
-    const named = ["name", "title", "test_name", "description", "label"].some((k) => typeof node[k] === "string" && AUTOGRADER_TEST.test(node[k]));
-    if (named) {
-      const verdict = testVerdict(node);
-      if (verdict !== null) return verdict;
-    }
-  }
+  if (!Array.isArray(node) && typeof node.name === "string" && PREVIOUS_TEST_NAME.test(node.name)) return node;
   for (const value of Array.isArray(node) ? node : Object.values(node)) {
-    const found = findTestInData(value, depth + 1);
-    if (found !== null) return found;
-  }
-  return null;
-}
-
-/** The same question answered from what's drawn on the page: the row/section that names the test. */
-const OUR_ELEMENTS = ".webrecan-ctl, .webrecan-pop, .webrecan-banner, .webrecan-autograder, #webrecan-panel";
-
-/** A copy of the element without anything this extension added to it (our own text must never be read as the page's). */
-function withoutOurs(element) {
-  const copy = element.cloneNode(true);
-  copy.querySelectorAll(OUR_ELEMENTS).forEach((node) => node.remove());
-  return copy;
-}
-
-function findTestInPage() {
-  const named = [...document.querySelectorAll("li, tr, div, section, p, span, h3, h4, h5")]
-    .filter((node) => !node.closest(OUR_ELEMENTS) && AUTOGRADER_TEST.test(node.textContent || "") && (node.textContent || "").length < 600)
-    // The smallest elements that mention the test; their parents mention it too.
-    .filter((node) => ![...node.children].some((child) => !child.matches(OUR_ELEMENTS) && AUTOGRADER_TEST.test(child.textContent || "")));
-  for (const node of named) {
-    const row = withoutOurs(node.closest("li, tr, [class*='test' i], [class*='result' i]") || node.parentElement || node);
-    const text = row.textContent || "";
-    const score = text.match(/(\d+(?:\.\d+)?)\s*(?:\/|out of)\s*(\d+(?:\.\d+)?)/i);
-    if (score && Number(score[2]) > 0) return Number(score[1]) < Number(score[2]);
-    const classes = [row, ...row.querySelectorAll("*")].map((n) => (typeof n.className === "string" ? n.className : "")).join(" ");
-    if (/\b(fail|failed|failing)\b|test-?fail|--fail/i.test(classes) || TEXT_FAIL.test(text.replace(AUTOGRADER_TEST, ""))) return true;
+    const found = findPreviousSubmissionsTest(value, depth + 1);
+    if (found) return found;
   }
   return null;
 }
 
 /** The message for the red box, or null when there's nothing to flag. */
 function previousSubmissionsFlag() {
-  const failedMessage = "⚠ Autograder: the “Previous Submission(s)” test failed";
-  const countMessage = (n) => `⚠ Autograder: ${n} previous submission${n === 1 ? "" : "s"}`;
-
   for (const node of document.querySelectorAll("[data-react-props]")) {
     const raw = node.getAttribute("data-react-props") || "";
-    if (!AUTOGRADER_TEST.test(raw)) continue; // cheap check before parsing a big blob
+    if (!PREVIOUS_TEST_NAME.test(raw)) continue; // cheap check before parsing a big blob
+    let test;
     try {
-      if (findTestInData(JSON.parse(raw)) === true) return failedMessage;
+      test = findPreviousSubmissionsTest(JSON.parse(raw));
     } catch {
-      // not JSON; ignore
+      continue; // not JSON
     }
-    // A test scored 0/0 has no pass or fail to read, but its output says how many earlier submissions there were.
-    const count = Number(raw.match(PREVIOUS_COUNT)?.[1] ?? 0);
-    if (count > 0) return countMessage(count);
+    if (test) return /^passed$/i.test(String(test.status)) ? null : "the “Previous Submission(s)” test failed";
   }
-
-  if (findTestInPage() === true) return failedMessage;
-  const count = Number(document.body.textContent.match(PREVIOUS_COUNT)?.[1] ?? 0);
-  return count > 0 ? countMessage(count) : null;
+  return null;
 }
 
 /** Remember what the autograder says about earlier submissions; the code quality box shows it. */
 function updatePreviousFlag() {
-  previousFlag = previousSubmissionsFlag()?.replace(/^⚠ Autograder:\s*/, "") ?? null;
+  previousFlag = previousSubmissionsFlag();
 }
 
 // ---- placing the buttons ----

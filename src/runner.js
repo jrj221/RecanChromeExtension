@@ -16,8 +16,9 @@ export async function mountRecan(py, readBytes) {
   }
 }
 
-// The TAs' command is `recan view <recording_file> --starter-code <files> --exclude .html`;
-// --starter-code is only passed when starter files are available.
+// The TAs' command is `recan view <recording_file> --starter-code <files> --approved-pastes <instructions.md
+// and the expected test output> --exclude .html`; --starter-code and --approved-pastes are only passed when
+// those files are available.
 export const TA_OPTIONS = { exclude: [".html"] };
 
 // Runs upstream's own entry point and argument parser, exactly like typing the command.
@@ -31,29 +32,37 @@ entry()
 `;
 
 /**
- * Run `recan <command> <recordings> [--starter-code ...] [--exclude ...]` and return its output.
+ * Run `recan <command> <recordings> [--starter-code ...] [--approved-pastes ...] [--exclude ...]` and return its output.
  *
  * @param py         a Pyodide instance with mountRecan() already called
  * @param kind       "view" -> the player page (HTML string)
  *                   "summary" -> the analysis as JSON text (`recan summary --json`)
  * @param recordings [{ name, bytes }] — raw .gz (or .jsonl) bytes, held in memory only
- * @param options    { exclude: [".html"], starterCode: [{ name, text }] }
+ * @param options    { exclude: [".html"], starterCode: [{ name, text }], approvedPastes: [string] }
+ *                   approvedPastes are the texts of files of approved fragments (the assignment's instructions
+ *                   and expected test output). A paste is approved if it falls within one of them.
  */
-function runRecan(py, kind, recordings, { exclude = [], starterCode = [] } = {}) {
+function runRecan(py, kind, recordings, { exclude = [], starterCode = [], approvedPastes = [] } = {}) {
   const dir = `${HOME}/recordings`;
   const starterDir = `${HOME}/starter`;
+  const approvedDir = `${HOME}/approved`;
   const safe = (name) => name.replace(/[\\/]/g, "_");
   py.FS.mkdirTree(dir);
   py.FS.mkdirTree(starterDir);
+  py.FS.mkdirTree(approvedDir);
 
   const paths = recordings.map((r) => `${dir}/${safe(r.name)}`);
   recordings.forEach((r, i) => py.FS.writeFile(paths[i], r.bytes));
   const starterPaths = starterCode.map((f) => `${starterDir}/${safe(f.name)}`);
   starterCode.forEach((f, i) => py.FS.writeFile(starterPaths[i], f.text));
 
+  const approvedPaths = approvedPastes.map((_, i) => `${approvedDir}/approved${i}.txt`);
+  approvedPastes.forEach((text, i) => py.FS.writeFile(approvedPaths[i], text));
+
   const out = `${HOME}/summary.json`;
   const argv = kind === "view" ? ["view", "--no-open", ...paths] : ["summary", ...paths, "--json", "--output", out];
   if (starterPaths.length) argv.push("--starter-code", ...starterPaths);
+  if (approvedPaths.length) argv.push("--approved-pastes", ...approvedPaths);
   if (exclude.length) argv.push("--exclude", ...exclude);
 
   try {
@@ -64,7 +73,7 @@ function runRecan(py, kind, recordings, { exclude = [], starterCode = [] } = {})
     if (html.length !== 1) throw new Error(`expected one generated page, found ${html.length}`);
     return py.FS.readFile(`${dir}/${html[0]}`, { encoding: "utf8" });
   } finally {
-    for (const d of [dir, starterDir]) {
+    for (const d of [dir, starterDir, approvedDir]) {
       for (const f of py.FS.readdir(d)) if (f !== "." && f !== "..") py.FS.unlink(`${d}/${f}`);
     }
     if (py.FS.analyzePath(out).exists) py.FS.unlink(out);

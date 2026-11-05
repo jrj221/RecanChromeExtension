@@ -22,6 +22,9 @@ This repo contains only the extension. It does not contain recan itself. See the
 - [Install](#install)
   - [What `setup.mjs` does](#what-setupmjs-does)
   - [Optional: starter-code checks](#optional-starter-code-checks)
+  - [Optional: instructions](#optional-instructions)
+  - [Optional: test output](#optional-test-output)
+  - [Testing with a local copy of recan](#testing-with-a-local-copy-of-recan)
 - [Code quality checker](#code-quality-checker)
 - [Testing](#testing)
 - [Layout](#layout)
@@ -54,6 +57,8 @@ You need Chrome 116+, Node 18+ and git. From the repo root (the folder with `man
 node scripts/setup.mjs
 ```
 
+If you have access to the private course repo, add `--with-course-content` to also fetch the starter code, instructions and test output (see the optional sections below).
+
 Then in Chrome: `chrome://extensions` → turn on **Developer mode** → **Load unpacked** → choose this repo.
 
 > [!TIP]
@@ -63,7 +68,7 @@ Then in Chrome: `chrome://extensions` → turn on **Developer mode** → **Load 
 
 ### What `setup.mjs` does
 
-It runs three scripts in order. Each one is also runnable on its own.
+It runs three scripts in order. Each one is also runnable on its own. With `--with-course-content` it also runs the three optional course-content scripts below. If those fail, for example because you don't have access to the private repo, setup reports it and finishes anyway.
 
 | Step | Script | What it does | Where it ends up |
 |---|---|---|---|
@@ -96,6 +101,63 @@ time to pull new changes, then reload the extension.
 With it set up, recordings are also run with `--starter-code`, so a recording that doesn't begin with the assignment's
 starter code is flagged, and pasting the starter code isn't counted as an unapproved paste (the same checks the
 autograder does). See [How does it know which starter code to use?](#how-does-it-know-which-starter-code-to-use)
+
+### Optional: instructions
+
+If you also have access to that repo, this one extra command makes pasting from the instructions count as approved:
+
+```
+node scripts/fetch-instructions.mjs
+```
+
+It downloads only each assignment's `instructions.md` (labs are skipped) into `instructions-source/` and writes
+`instructions.json`; both are git-ignored. Run it again any time to pull new changes, then reload the extension. The
+instructions are looked up for the assignment the extension picked from its starter files, so run the starter-code
+step too. Recordings are then run with `--approved-pastes <that assignment's instructions.md>`, so pasting the sample
+output or code from the instructions isn't counted as an unapproved paste. An assignment with no `instructions.md` next
+to its `assignment/` folder just skips this.
+
+### Optional: test output
+
+Gradescope shows students the expected output of a failing test, and they may copy a line from it (an error message,
+a prompt). If you have access to the course repo, this makes pasting from it count as approved too:
+
+```
+node scripts/fetch-test-output.mjs
+```
+
+It downloads each assignment's expected test output into `test-output-source/` and writes `test-output.json`; both are
+git-ignored. That's every dialog file in `test_files/` (the ones the assignment's tests pass to `dialog(...)`) and every
+`*.expected*` file; input data like word lists and books is left out. The autograder's markup (`<<input>>`,
+`` ``scored text;name;10`` ``) is removed the same way the autograder does it, leaving the text Gradescope shows. Like
+the instructions, it's looked up for the assignment the extension picked from its starter files, so run the
+starter-code step too. Each file is a separate approved source, so a paste has to fall within one of them.
+
+<br>
+
+### Testing with a local copy of recan
+
+To try a change to recan before it is merged, point the extension at your checkout:
+
+```
+node scripts/use-local-recan.mjs [path to the recan repo]     # default: ../code-recording-analysis
+```
+
+It copies the repo's `recan/` folder into `upstream-local/` (git-ignored) and points `recan-files.json` at it, then
+prints the version, branch and commit it copied (and whether the checkout has uncommitted changes). Reload the
+extension to use it. Run the script again after each change to recan: it's a copy, so it doesn't follow your edits.
+
+**To go back to the released recan:**
+
+1. Run `node scripts/setup.mjs`. That pulls the latest release into `upstream/` and rewrites `recan-files.json` to
+   point at it. (To switch back *without* pulling, run just `node scripts/list-recan-files.mjs`.)
+2. Reload the extension at `chrome://extensions`.
+3. Optionally delete `upstream-local/`. Nothing uses it once `recan-files.json` points at `upstream/`.
+
+To check which one is active, open `recan-files.json`: its `src` paths start with `upstream-local/` for the local copy
+and `upstream/` for the release. The tests use whichever one it points at.
+
+<br>
 
 <br>
 
@@ -156,7 +218,7 @@ and checks the output is **identical** for both things the extension uses: the p
 (`recan summary --json ... --exclude .html`). `RECAN` is your installed `recan` command (it needs recan's Python
 dependencies). To include starter code, also set `STARTER_DIR=<folder of the assignment's starter .py files>`.
 `node test/flags.mjs [folder of .gz recordings]` checks how recan's analysis becomes the flags and the pasted-code snippets,
-including rebuilding the whole file at a paste (with a folder, it also compares them with recan's real output). `node test/tabreturn.mjs` checks the return-to-Gradescope behavior with stand-ins for Chrome's tab APIs. `node test/cross-file.mjs` checks that code moved between two files' recordings is an internal paste only when both are analyzed together. Run the parity test after every upstream update. `python3 test/gen_synthetic.py <folder>` writes extra edge-case recordings.
+including rebuilding the whole file at a paste (with a folder, it also compares them with recan's real output). `node test/tabreturn.mjs` checks the return-to-Gradescope behavior with stand-ins for Chrome's tab APIs. `node test/previous-submissions.mjs` checks how the Previous Submission(s) test is read. `node test/instructions.mjs` checks that a paste from the instructions is approved only when the instructions are passed in, and `node test/test-output.mjs` does the same for the expected test output. `node test/cross-file.mjs` checks that code moved between two files' recordings is an internal paste only when both are analyzed together. Run the parity test after every upstream update. `python3 test/gen_synthetic.py <folder>` writes extra edge-case recordings.
 
 > [!WARNING]
 > Keep real recordings out of this repo; they're student work (`*.gz` is git-ignored).
@@ -185,10 +247,13 @@ src/                 content.js + content.css   the buttons, red flag, "?" popov
                      quality.js                 runs checker/quality.py in the Python session
                      viewer.*, sandbox.*        the tab that shows the recan player
 shims/               pydivsufsort.py stand-in
-scripts/             setup.mjs and its steps; fetch-starter-code.mjs (optional)
+scripts/             setup.mjs and its steps; fetch-starter-code.mjs, fetch-instructions.mjs, fetch-test-output.mjs, use-local-recan.mjs (optional)
 test/                parity.mjs, flags.mjs, gen_synthetic.py, quality_test.py, quality-parity.mjs
 vendor/  upstream/  recan-files.json   downloaded or generated by setup (git-ignored)
 starter-code-source/  starter-code.json   from the optional starter-code script (git-ignored)
+instructions-source/  instructions.json   from the optional instructions script (git-ignored)
+test-output-source/   test-output.json     from the optional test-output script (git-ignored)
+upstream-local/                            from use-local-recan.mjs (git-ignored)
 ```
 
 <br>
@@ -230,11 +295,12 @@ modules with it).
 
 ### How does the Previous submissions flag show up?
 
-On a submission page, a bold line appears at the top of the red code quality box (on `main`, which has no quality box, it's a small red box of its own) when the autograder's **Previous Submission(s)** test shows the
-student already submitted before: either the test clearly failed, or its output ("You have made N previous submissions.")
-says N is above 0 (that test is scored 0/0, so its score can't say). The extension reads this from the data the page embeds,
-and if it isn't there, from the results drawn on the page. The test's name and the output wording are `AUTOGRADER_TEST` and
-`PREVIOUS_COUNT` near the top of the autograder section in `src/content.js`.
+On a submission page, a bold line appears at the top of the red code quality box (on `main`, which has no quality box, it's a small red box of its own) when the autograder's **Previous Submission(s)** test didn't pass,
+which means the student already submitted before. The extension finds that test in the data the page embeds (Gradescope lists every test there as `{ name, status, ... }`) and flags it unless its `status` is `passed`.
+
+If the test isn't found (some Gradescope pages don't embed the results), nothing is shown. Nothing is read from the drawn
+page, so a different test failing can't be mistaken for this one. The test's name is `PREVIOUS_TEST_NAME` near the top
+of the autograder section in `src/content.js`; `node test/previous-submissions.mjs` checks the rules.
 
 ### What does the ? button show?
 
