@@ -12,7 +12,7 @@ const GZ = /\.gz(\?|$)/i;
 const PY = /\.py$/i;
 
 // Files whose names start with "test" (test_calculator.py, test_words.recording.jsonl.gz, ...) are
-// ignored by the flag checks: they are not analyzed, flagged or counted. Keep in step with
+// hidden from the file view and ignored by the flag checks. Keep in step with
 // is_ignored in checker/quality.py.
 const isTestFile = (path) => /^test/i.test(String(path).split("/").pop());
 const MARK = "data-webrecan";
@@ -100,7 +100,7 @@ function filesFromLinks(root) {
   return files;
 }
 
-/** { recordings, sources } (the .gz recordings and the .py files) from the submission in `root`. */
+/** All submitted files, plus the non-test recordings and Python sources. */
 function parsePage(root) {
   const data = findSubmissionData(root);
   const props = data?.props ?? assignmentProps(root);
@@ -112,8 +112,8 @@ function parsePage(root) {
   const describe = (f) => ({ id: String(f.id ?? f.uuid ?? f.url ?? f.file.url), url: f.url || f.file.url, name: f.path });
   return {
     assignmentTitle,
-    // Test recordings keep their Run recan button but are never analyzed or flagged.
-    recordings: files.filter((f) => GZ.test(f.path || "")).map((f) => ({ ...describe(f), ignored: isTestFile(f.path) })),
+    files: files.map(describe),
+    recordings: files.filter((f) => GZ.test(f.path || "") && !isTestFile(f.path)).map(describe),
     sources: files.filter((f) => PY.test(f.path || "") && !isTestFile(f.path)).map(describe),
   };
 }
@@ -131,7 +131,7 @@ function currentPage() {
   if (path === loadedPath) parsed = parsePage(document);
   else {
     if (!pagesByPath.has(path)) {
-      pagesByPath.set(path, { recordings: [], sources: [] }); // until the fetch finishes (or if it fails)
+      pagesByPath.set(path, { files: [], recordings: [], sources: [] }); // until the fetch finishes (or if it fails)
       fetch(location.pathname + location.search, { credentials: "include" })
         .then((res) => (res.ok ? res.text() : Promise.reject(new Error(`HTTP ${res.status}`))))
         .then((html) => {
@@ -148,7 +148,7 @@ function currentPage() {
 
 // ---- talking to the extension ----
 
-let page = { recordings: [], sources: [], assignmentId: "", assignmentTitle: "", recordingNames: [] }; // the page last rendered
+let page = { files: [], recordings: [], sources: [], assignmentId: "", assignmentTitle: "", recordingNames: [] }; // the page last rendered
 
 const analyses = new Map(); // recording id -> { status: "pending" | "done" | "error", evaluation, starter, error }
 const starterInfos = new Map(); // assignment id + recording names -> { enabled, folderId, source, folders } | "pending"
@@ -161,7 +161,7 @@ const send = (message) =>
   });
 
 function requestAnalysis(rec) {
-  if (rec.ignored || analyses.has(rec.id)) return;
+  if (analyses.has(rec.id)) return;
   analyses.set(rec.id, { status: "pending" });
   send({
     type: "analyze",
@@ -169,7 +169,7 @@ function requestAnalysis(rec) {
     name: rec.name,
     fileId: rec.id,
     // All the recordings of this submission: they're analyzed together so a paste of code that came from another file counts as internal.
-    siblings: page.recordings.filter((r) => !r.ignored).map((r) => ({ fileId: r.id, url: r.url, name: r.name })),
+    siblings: page.recordings.map((r) => ({ fileId: r.id, url: r.url, name: r.name })),
     assignmentId: page.assignmentId,
     recordingNames: page.recordingNames,
   })
@@ -219,7 +219,7 @@ let previousFlag = null; // text from the autograder's Previous Submission(s) te
 const prefetched = new Set();
 /** Start downloading recordings right away (while the page draws its file list); analysis uses them later. */
 function prefetchRecordings(recordings) {
-  const urls = recordings.filter((r) => !r.ignored).map((r) => r.url).filter((url) => !prefetched.has(url));
+  const urls = recordings.map((r) => r.url).filter((url) => !prefetched.has(url));
   if (!urls.length) return;
   urls.forEach((url) => prefetched.add(url));
   send({ type: "prefetch", urls }).catch(() => {});
@@ -276,7 +276,7 @@ function inAutograderOutput(node) {
 
 function bannerSpot() {
   const first = [...document.querySelectorAll(FILE_VIEW)].find(
-    (node) => !node.closest(".webrecan-ctl, .webrecan-pop, .webrecan-banner, #webrecan-panel") && (node.tagName !== "PRE" || !inAutograderOutput(node)),
+    (node) => !node.closest(".webrecan-ctl, .webrecan-pop, .webrecan-banner, #webrecan-panel, [data-webrecan-test-file]") && (node.tagName !== "PRE" || !inAutograderOutput(node)),
   );
   if (first?.parentNode) return { parent: first.parentNode, before: first };
   const anchor = document.querySelector(".webrecan-ctl");
@@ -397,7 +397,6 @@ function makeControl(rec) {
   const info = document.createElement("button");
   info.type = "button";
   info.className = "webrecan-info";
-  info.hidden = !!rec.ignored; // test files have nothing to show
   info.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -418,7 +417,6 @@ function stateOf(rec) {
 
 function paint(ctl) {
   if (!ctl.recording) return; // a stale copy; render() removes these
-  if (ctl.recording.ignored) return; // a test file: just the Run recan button, never flagged
   ctl.dataset.state = analyses.get(ctl.recording.id)?.status ?? "pending"; // pending | done | error
   const state = stateOf(ctl.recording);
   const [run, info] = ctl.children;
@@ -909,10 +907,127 @@ function findNameElements(rec) {
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const parent = node.parentElement;
     if (!parent || !names.has(node.nodeValue.trim())) continue;
-    if (parent.closest(`[${MARK}], #webrecan-panel, .webrecan-pop, script, style, textarea`)) continue;
+    if (parent.closest(`[${MARK}], #webrecan-panel, .webrecan-pop, .webrecan-banner, script, style, textarea, pre, code`)) continue;
     found.push(parent);
   }
   return found;
+}
+
+// Hide with a marker instead of removing React's nodes, so file selection and downloads for
+// the remaining files keep their original handlers. Recompute on every render: Gradescope
+// can reuse a row for a different file when switching submissions.
+const HIDDEN_TEST = "data-webrecan-test-file";
+const FILE_ENTRY = 'li, tr, [role="treeitem"], [role="tab"], [role="tabpanel"], .submissionFile, [class*="submissionFile--"], [class*="file-preview" i], [class*="filePreview" i]';
+const FILE_SEPARATOR = 'hr, [role="separator"], [class*="separator" i], [class*="divider" i]';
+const GRADING_REGION = 'html, body, main, form, nav, aside, #main-content, [data-react-class], [role="main"], [class*="autograder" i], [class*="rubric" i]';
+
+/** Map file identities onto their ancestors, independent of Gradescope's CSS class names. */
+function fileOwnership(entries) {
+  const owners = new Map();
+  for (const { file, nodes } of entries) {
+    for (const node of nodes) {
+      for (let ancestor = node; ancestor; ancestor = ancestor.parentElement) {
+        if (!owners.has(ancestor)) owners.set(ancestor, new Set());
+        owners.get(ancestor).add(file.id);
+      }
+    }
+  }
+  return owners;
+}
+
+/** The entire branch for this file, stopping where the next file or grading UI begins. */
+function outerFileContainer(node, owners) {
+  let container = null;
+  for (let ancestor = node; ancestor; ancestor = ancestor.parentElement) {
+    if ((owners.get(ancestor)?.size ?? 0) > 1) return container;
+    if (ancestor.matches(GRADING_REGION) || ancestor.querySelector(GRADING_REGION)) break;
+    container = ancestor;
+  }
+  return container;
+}
+
+/** Collapse the leftover borders/spacing around a hidden card, without hiding other content. */
+function collapseHiddenFileWrappers(hidden) {
+  const hasOnlyHiddenContent = (node) => {
+    if (node.nodeType === Node.TEXT_NODE) return !node.nodeValue.trim();
+    if (node.nodeType !== Node.ELEMENT_NODE) return true;
+    if (hidden.has(node)) return true;
+    if (node.matches(GRADING_REGION + ", " + OUR_ELEMENTS)) return false;
+    if (node.matches("hr")) return true;
+    // Empty controls, images, and previews can still be meaningful. Only structural
+    // wrappers and separators can disappear along with their hidden children.
+    if (!node.matches("div, span, section, article, li, ul, ol, " + FILE_SEPARATOR) || node.matches('[role]:not([role="separator"]), [tabindex], [contenteditable]')) return false;
+    return [...node.childNodes].every(hasOnlyHiddenContent);
+  };
+
+  for (const node of [...hidden]) {
+    for (let parent = node.parentElement; parent && hasOnlyHiddenContent(parent); parent = parent.parentElement) {
+      hidden.add(parent);
+    }
+  }
+  // Some layouts put an <hr> between cards rather than a border on the card itself.
+  for (const node of [...hidden]) {
+    for (const sibling of [node.previousElementSibling, node.nextElementSibling]) {
+      if (sibling?.matches(FILE_SEPARATOR) && hasOnlyHiddenContent(sibling)) hidden.add(sibling);
+    }
+  }
+}
+
+// Signed download URLs can acquire a different query string when Gradescope redraws a file.
+const downloadKey = (url) => {
+  try {
+    const parsed = new URL(url, location.href);
+    return parsed.origin + parsed.pathname;
+  } catch {
+    return null;
+  }
+};
+
+function hideTestFiles(files) {
+  const links = [...document.querySelectorAll("a[href]")].filter((link) => !link.closest(OUR_ELEMENTS));
+  const entries = files.map((file) => {
+    const names = findNameElements(file);
+    const key = downloadKey(file.url);
+    const downloads = key ? links.filter((link) => downloadKey(link.getAttribute("href")) === key) : [];
+    return { file, names, downloads, nodes: [...names, ...downloads] };
+  });
+  const owners = fileOwnership(entries);
+  const hidden = new Set();
+  for (const { file, names, downloads, nodes } of entries) {
+    if (!isTestFile(file.name)) continue;
+    const separateDownloads = downloads.filter((link) => !names.some((name) => link.contains(name)));
+    for (const node of nodes) {
+      if (node.closest('[class*="autograder" i], [class*="testCase" i]')) continue;
+      const container = outerFileContainer(node, owners);
+      if (container) {
+        hidden.add(container);
+        continue;
+      }
+      let target = node.closest("a, button") || node;
+      // Never hide a shared list/viewer containing another file, or the grading UI itself.
+      const containsOtherFile = (candidate) => entries.some((entry) => entry.file.id !== file.id && entry.nodes.some((other) => candidate.contains(other)));
+      if (containsOtherFile(target)) target = node;
+      let foundCard = false;
+      for (let ancestor = target; ancestor && ancestor !== document.body; ancestor = ancestor.parentElement) {
+        if (containsOtherFile(ancestor)) break;
+        if (ancestor.matches(FILE_ENTRY)) target = ancestor;
+        // Some Gradescope layouts use an ordinary div for the whole file card. Its title
+        // and Download link are siblings, so hiding just the title leaves an empty card.
+        if (!foundCard && !ancestor.matches("a, button") && names.some((name) => ancestor.contains(name)) && separateDownloads.some((link) => ancestor.contains(link))) {
+          target = ancestor;
+          foundCard = true;
+        }
+      }
+      hidden.add(target);
+    }
+  }
+  collapseHiddenFileWrappers(hidden);
+  for (const node of document.querySelectorAll(`[${HIDDEN_TEST}]`)) {
+    if (!hidden.has(node)) node.removeAttribute(HIDDEN_TEST);
+  }
+  for (const node of hidden) {
+    if (!node.hasAttribute(HIDDEN_TEST)) node.setAttribute(HIDDEN_TEST, "");
+  }
 }
 
 /** Make sure the control after `anchor` is for `rec`, replacing a stale one. */
@@ -968,6 +1083,7 @@ function render() {
     if (!created.has(node)) node.remove();
   }
   page = currentPage();
+  hideTestFiles(page.files);
   const recordings = page.recordings;
   if (location.pathname !== seenPath) [seenPath, seenAt] = [location.pathname, Date.now()];
 
