@@ -18,7 +18,32 @@ const isTestFile = (path) => /^test/i.test(String(path).split("/").pop());
 const MARK = "data-webrecan";
 // Everything this extension adds to the page; its own text and elements must never be read as the page's.
 const OUR_ELEMENTS = ".webrecan-ctl, .webrecan-pop, .webrecan-banner, .webrecan-autograder, #webrecan-panel";
-const MIN_ACTIVE_SECONDS = 2 * 60; // keep in sync with flags.js (content scripts can't import modules)
+// ---- minimum non-idle time per assignment ----
+//
+// A recording whose non-idle time is under the assignment's minimum is flagged. EDIT THE MINUTES HERE:
+// add a line to MIN_ACTIVE_MINUTES with the assignment's title exactly as Gradescope shows it
+// (case doesn't matter), e.g.  "Homework 4c - Program Arguments": 10,   Anything not listed uses DEFAULT_MIN_ACTIVE_MINUTES.
+const DEFAULT_MIN_ACTIVE_MINUTES = 2;
+const MIN_ACTIVE_MINUTES = {
+  "Homework 4c - Program Arguments": 0.5, // 30 seconds  
+};
+
+/** The assignment's own title(s): page.assignmentTitle is several names joined with " | ". */
+const titleParts = (title) => String(title || "").split("|").map((t) => t.trim().toLowerCase()).filter(Boolean);
+
+/** The minimum non-idle seconds for the assignment with this title. */
+function minActiveSeconds(title) {
+  const parts = titleParts(title);
+  for (const [name, minutes] of Object.entries(MIN_ACTIVE_MINUTES)) {
+    if (parts.includes(name.trim().toLowerCase())) return minutes * 60;
+  }
+  return DEFAULT_MIN_ACTIVE_MINUTES * 60;
+}
+
+const lowActive = (e) => e.activeSeconds < minActiveSeconds(page.assignmentTitle);
+// The recording's flags with the time check judged against this assignment's minimum.
+const isFlagged = (e) => lowActive(e) || e.flags.unapprovedPastes || e.flags.starterMismatch;
+// ---- end minimum time ----
 // Progress checks are meant to be short: a total recording time (idle included) over this is flagged.
 const MAX_PROGRESS_CHECK_SECONDS = 2 * 60 * 60;
 const isProgressCheck = (title) => /progress\s*check/i.test(title || "");
@@ -413,7 +438,7 @@ function makeControl(rec) {
 function stateOf(rec) {
   const entry = analyses.get(rec.id);
   if (entry?.status === "error") return { flagged: false, tone: "error" };
-  if (entry?.status === "done" && (entry.evaluation.flagged || tooLong(entry.evaluation))) return { flagged: true, tone: "flag" };
+  if (entry?.status === "done" && (isFlagged(entry.evaluation) || tooLong(entry.evaluation))) return { flagged: true, tone: "flag" };
   return { flagged: false, tone: "" };
 }
 
@@ -540,11 +565,11 @@ function fillPopover(ctl) {
     const e = entry.evaluation;
     parts.push(
       row(
-        e.flags.lowActiveTime,
+        lowActive(e),
         "Time",
         `${duration(e.activeSeconds)} non-idle of ${duration(e.totalSeconds)} total`,
-        e.flags.lowActiveTime
-          ? `Under the ${MIN_ACTIVE_SECONDS / 60} minute minimum. Idle (no activity for 5+ seconds, or the editor not focused): ${duration(e.idleSeconds)}.`
+        lowActive(e)
+          ? `Under the ${minActiveSeconds(page.assignmentTitle) / 60} minute minimum. Idle (no activity for 5+ seconds, or the editor not focused): ${duration(e.idleSeconds)}.`
           : `Idle (no activity for 5+ seconds, or the editor not focused): ${duration(e.idleSeconds)}.`,
       ),
       ...(isProgressCheck(page.assignmentTitle)
@@ -1076,6 +1101,18 @@ function renderFallback(unplaced) {
 // a moment to draw its file list. A recording that is in the page data but not in the visible
 // file list (e.g. left over from another assignment) is simply skipped.
 const FALLBACK_AFTER_MS = 3000;
+// Gradescope opens the first file of every submission. Collapse it once per submission so the page
+// starts compact; after that the grader's own clicks are left alone.
+const OPEN_FILE_TOGGLE = '.fileViewerHeader.open button.fileViewerHeader--toggleButton[aria-expanded="true"]';
+let collapsedPath = "";
+function collapseFirstFile() {
+  if (collapsedPath === location.pathname) return;
+  const toggle = document.querySelector(OPEN_FILE_TOGGLE);
+  if (!toggle) return; // the files aren't drawn yet; try again on the next render
+  collapsedPath = location.pathname;
+  toggle.click();
+}
+
 let seenPath = "";
 let seenAt = Date.now();
 
@@ -1086,6 +1123,7 @@ function render() {
   }
   page = currentPage();
   hideTestFiles(page.files);
+  collapseFirstFile();
   const recordings = page.recordings;
   if (location.pathname !== seenPath) [seenPath, seenAt] = [location.pathname, Date.now()];
 
