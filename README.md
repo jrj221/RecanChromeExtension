@@ -119,7 +119,8 @@ It downloads only each assignment's `instructions.md` (labs are skipped) into `i
 instructions are looked up for the assignment the extension picked from its starter files, so run the starter-code
 step too. Recordings are then run with `--approved-pastes <that assignment's instructions.md>`, so pasting the sample
 output or code from the instructions isn't counted as an unapproved paste. An assignment with no `instructions.md` next
-to its `assignment/` folder just skips this.
+to its `assignment/` folder just skips this. The progress checks keep theirs in `solution/instructions.md`, so that
+one file is used for them. Nothing else in `solution/` is read (the sparse clone only downloads `instructions.md` files).
 
 ### Optional: test output
 

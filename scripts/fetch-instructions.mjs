@@ -12,22 +12,21 @@
 // What it does:
 //   1. Clones the repo into instructions-source/ (git-ignored) as a sparse, shallow clone, so only the
 //      instructions.md files are downloaded instead of the whole 500+ MB repo. Labs are skipped:
-//      students don't submit them, so they never have recordings to check.
+//      students don't submit them, so they never have recordings to check. A progress check keeps its
+//      instructions in solution/instructions.md; that one file is used (see instructions-index.mjs).
 //   2. Writes instructions.json (git-ignored): assignment id -> instructions path, which is what the
 //      extension reads. The id is the assignment folder relative to canvas/, the same id
 //      starter-code.json uses. Safe to re-run: it pulls new changes.
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, relative, sep } from "node:path";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { findInstructions } from "./instructions-index.mjs";
 
 const REPO = "https://github.com/BYU-CS-Course-Ops/CS110-course-content.git";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dir = join(root, "instructions-source");
-const posix = (path) => path.split(sep).join("/");
 
-// Students don't submit labs (lab1a, old-lab2a-if-else, ...), so they are never needed.
-const isLab = (folderName) => /^(old-)?lab/i.test(folderName);
 const SPARSE_PATTERNS = [
   "/canvas/**/instructions.md",
   "!/canvas/old-content/",
@@ -69,21 +68,7 @@ try {
 
 // ---- build instructions.json ----
 
-const canvas = join(dir, "canvas");
-const assignments = {};
-
-function walk(current) {
-  for (const name of readdirSync(current).sort()) {
-    if (name === "old-content" || name.startsWith(".")) continue;
-    const path = join(current, name);
-    if (!statSync(path).isDirectory()) continue;
-    if (isLab(name)) continue;
-    const file = join(path, "instructions.md");
-    if (existsSync(file) && statSync(file).isFile()) assignments[posix(relative(canvas, path))] = posix(relative(root, file));
-    walk(path);
-  }
-}
-walk(canvas);
+const assignments = findInstructions(join(dir, "canvas"), root);
 
 const commit = execFileSync("git", ["-C", dir, "rev-parse", "--short", "HEAD"]).toString().trim();
 writeFileSync(join(root, "instructions.json"), JSON.stringify({ commit, assignments }, null, 1));
