@@ -139,6 +139,7 @@ function parsePage(root) {
   const describe = (f) => ({ id: String(f.id ?? f.uuid ?? f.url ?? f.file.url), url: f.url || f.file.url, name: f.path });
   return {
     assignmentTitle,
+    previousFlag: previousSubmissionsFlag(root),
     files: files.map(describe),
     recordings: files.filter((f) => GZ.test(f.path || "") && !isTestFile(f.path)).map(describe),
     sources: files.filter((f) => PY.test(f.path || "") && !isTestFile(f.path)).map(describe),
@@ -968,8 +969,8 @@ function findPreviousSubmissionsTest(node, depth = 0) {
 }
 
 /** The message for the red box, or null when there's nothing to flag. */
-function previousSubmissionsFlag() {
-  for (const node of document.querySelectorAll("[data-react-props]")) {
+function previousSubmissionsFlag(root = document) {
+  for (const node of root.querySelectorAll("[data-react-props]")) {
     const raw = node.getAttribute("data-react-props") || "";
     if (!PREVIOUS_TEST_NAME.test(raw)) continue; // cheap check before parsing a big blob
     let test;
@@ -985,7 +986,7 @@ function previousSubmissionsFlag() {
 
 /** Remember what the autograder says about earlier submissions; the code quality box shows it. */
 function updatePreviousFlag() {
-  previousFlag = previousSubmissionsFlag();
+  previousFlag = page.previousFlag ?? null; // read from this submission's own data (see parsePage), not the first page's
 }
 
 // ---- placing the buttons ----
