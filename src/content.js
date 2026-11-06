@@ -324,6 +324,36 @@ function syncScroll(a, b) {
   }
 }
 
+/** The file's section in Gradescope's file list, matched by its name (or just the last part of its path). */
+function fileSection(name) {
+  const sections = [...document.querySelectorAll("section.fileViewer")];
+  const base = (n) => String(n).split("/").pop();
+  return sections.find((s) => fileViewerName(s) === name) ?? sections.find((s) => base(fileViewerName(s)) === base(name)) ?? null;
+}
+
+/** Open the file (if it's collapsed) and scroll it into view. */
+function showFile(name) {
+  const section = fileSection(name);
+  if (!section) return;
+  const toggle = section.querySelector(".fileViewerHeader--toggleButton");
+  if (toggle?.getAttribute("aria-expanded") === "false") toggle.click();
+  const scroll = () => section.scrollIntoView({ behavior: "smooth", block: "start" });
+  scroll();
+  setTimeout(scroll, 250); // once the file's lines have been drawn and the page has settled
+}
+
+/** A file name in the banner; clicking it jumps to that file on the page. */
+function fileLink(name) {
+  const link = el("button", "file-link", name);
+  link.type = "button";
+  link.title = "Show this file";
+  link.addEventListener("click", (event) => {
+    event.preventDefault();
+    showFile(name);
+  });
+  return link;
+}
+
 function fillBanner() {
   const summary = el("summary");
   const body = el("div", "body");
@@ -341,7 +371,12 @@ function fillBanner() {
   }
   for (const check of failedChecks) {
     const row = el("div", "check fail");
-    row.append(el("span", "mark", "✗"), el("span", "label", check.label), el("span", "files", check.files.join(", ")));
+    const names = el("span", "files");
+    check.files.forEach((file, i) => {
+      if (i) names.append(", ");
+      names.append(fileLink(file));
+    });
+    row.append(el("span", "mark", "✗"), el("span", "label", check.label), names);
     body.append(row);
     // Duplicated code: a dropdown per repeated snippet.
     for (const item of check.items || []) {
@@ -1106,7 +1141,10 @@ const FALLBACK_AFTER_MS = 3000;
 const fileViewerName = (section) => (section.querySelector(".fileViewerHeader--toggleButton")?.textContent || "").trim();
 const byFileName = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
 function sortFileViewers() {
-  const sections = [...document.querySelectorAll("section.fileViewer")].map((node) => ({ node, name: fileViewerName(node) }));
+  const all = [...document.querySelectorAll("section.fileViewer")].map((node) => ({ node, name: fileViewerName(node) }));
+  // A test file's whole section is hidden (not just its contents), so no empty box is left in the column.
+  for (const { node, name } of all) if (isTestFile(name) && !node.hasAttribute(HIDDEN_TEST)) node.setAttribute(HIDDEN_TEST, "");
+  const sections = all.filter(({ name }) => !isTestFile(name));
   sections.sort((a, b) => GZ.test(b.name) - GZ.test(a.name) || byFileName(a.name, b.name));
   sections.forEach(({ node }, i) => {
     node.parentElement?.classList.add("webrecan-sorted");

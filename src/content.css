@@ -129,3 +129,6 @@
   display: flex;
   flex-direction: column;
 }
+
+.webrecan-banner .check .file-link { all: unset; font: inherit; color: inherit; cursor: pointer; text-decoration: underline dotted; }
+.webrecan-banner .check .file-link:hover, .webrecan-banner .check .file-link:focus-visible { text-decoration: underline; }
