@@ -1101,6 +1101,19 @@ function renderFallback(unplaced) {
 // a moment to draw its file list. A recording that is in the page data but not in the visible
 // file list (e.g. left over from another assignment) is simply skipped.
 const FALLBACK_AFTER_MS = 3000;
+// Recordings (.gz) first, then everything else, each group in alphabetical order. The sections are not moved
+// (React owns them); the parent is made a column and each section gets a CSS `order`.
+const fileViewerName = (section) => (section.querySelector(".fileViewerHeader--toggleButton")?.textContent || "").trim();
+const byFileName = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+function sortFileViewers() {
+  const sections = [...document.querySelectorAll("section.fileViewer")].map((node) => ({ node, name: fileViewerName(node) }));
+  sections.sort((a, b) => GZ.test(b.name) - GZ.test(a.name) || byFileName(a.name, b.name));
+  sections.forEach(({ node }, i) => {
+    node.parentElement?.classList.add("webrecan-sorted");
+    if (node.style.order !== String(i + 1)) node.style.order = String(i + 1); // 0 is left for our banner
+  });
+}
+
 // Gradescope opens the first file of every submission. Collapse it once per submission so the page
 // starts compact; after that the grader's own clicks are left alone.
 const OPEN_FILE_TOGGLE = '.fileViewerHeader.open button.fileViewerHeader--toggleButton[aria-expanded="true"]';
@@ -1123,6 +1136,7 @@ function render() {
   }
   page = currentPage();
   hideTestFiles(page.files);
+  sortFileViewers();
   collapseFirstFile();
   const recordings = page.recordings;
   if (location.pathname !== seenPath) [seenPath, seenAt] = [location.pathname, Date.now()];
