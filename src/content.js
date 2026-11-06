@@ -11,10 +11,12 @@
 const GZ = /\.gz(\?|$)/i;
 const PY = /\.py$/i;
 
-// Files whose names start with "test" (test_calculator.py, test_words.recording.jsonl.gz, ...) are
-// hidden from the file view and ignored by the flag checks. Keep in step with
-// is_ignored in checker/quality.py.
-const isTestFile = (path) => /^test/i.test(String(path).split("/").pop());
+// Files whose names start with "test" (test_calculator.py, test_words.recording.jsonl.gz, ...), and the
+// instructions recording (instructions.recording.jsonl.gz), are hidden from the file view and ignored by
+// the flag checks. The "test" rule is also in is_ignored in checker/quality.py (the instructions recording
+// isn't a .py file, so the code quality checks never see it).
+const IGNORED_FILE = /^(test|instructions\.recording\.jsonl\.gz$)/i;
+const isTestFile = (path) => IGNORED_FILE.test(String(path).split("/").pop());
 const MARK = "data-webrecan";
 // Everything this extension adds to the page; its own text and elements must never be read as the page's.
 const OUR_ELEMENTS = ".webrecan-ctl, .webrecan-pop, .webrecan-banner, .webrecan-autograder, #webrecan-panel";
