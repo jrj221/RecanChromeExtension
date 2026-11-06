@@ -275,13 +275,15 @@ function paintBanner() {
     banner.className = "webrecan-banner";
   }
   // Sit above the first file so it scrolls with the files, not the page.
-  const spot = bannerSpot();
+  const spot = bannerSpot() ?? autograderSpot();
   if (spot) {
+    banner.classList.remove("is-floating");
     if (banner.parentNode !== spot.parent || banner.nextSibling !== spot.before) spot.parent.insertBefore(banner, spot.before);
-  } else if (!banner.isConnected) {
-    const main = document.getElementById("main-content");
-    if (main?.parentNode) main.parentNode.insertBefore(banner, main);
-    else document.body.prepend(banner);
+  } else {
+    // No file view to sit above (some pages draw the files differently). Float over the page instead of adding
+    // a row to the layout: a full-height page has no room for one and would push its bottom bar off screen.
+    banner.classList.add("is-floating");
+    if (banner.parentNode !== document.body) document.body.append(banner);
   }
   const signature = JSON.stringify([quality, previousFlag]);
   if (banner.dataset.sig === signature) return; // nothing changed; don't touch the DOM
@@ -299,6 +301,33 @@ function inAutograderOutput(node) {
     if (/autograder\s+(output|results)/i.test((ancestor.textContent || "").slice(0, 400))) return true;
   }
   return false;
+}
+
+/**
+ * Just below the "Autograder Results" card, for pages with no file view to sit above. The card is found from its
+ * heading's text: it's the nearest ancestor of the heading drawn with a border (the bordered box in the page).
+ */
+function autograderSpot() {
+  const heading = [...document.querySelectorAll("h1, h2, h3, h4, h5, h6, button, summary, a, span, div")].find(
+    (node) => !node.closest(".webrecan-banner, .webrecan-ctl, .webrecan-pop, #webrecan-panel") && /^\s*autograder results\s*$/i.test(node.textContent || "") && !node.querySelector("h1, h2, h3, h4, h5, h6"),
+  );
+  if (!heading) return null;
+  const bordered = (node) => {
+    const style = getComputedStyle(node);
+    return style.borderTopStyle !== "none" && parseFloat(style.borderTopWidth) > 0;
+  };
+  let card = null;
+  let node = heading;
+  for (let depth = 0; node && node !== document.body && depth < 10; depth++, node = node.parentElement) {
+    if (bordered(node)) {
+      card = node;
+      break;
+    }
+  }
+  card ??= heading; // no bordered box found: just below the heading itself
+  if (!card.parentElement) return null;
+  const next = card.nextSibling;
+  return { parent: card.parentElement, before: next === banner ? banner.nextSibling : next }; // (already there: stay put)
 }
 
 function bannerSpot() {

@@ -132,3 +132,6 @@
 
 .webrecan-banner .check .file-link { all: unset; font: inherit; color: inherit; cursor: pointer; text-decoration: underline dotted; }
 .webrecan-banner .check .file-link:hover, .webrecan-banner .check .file-link:focus-visible { text-decoration: underline; }
+
+/* Used when there's no file view to sit above: floats bottom-left, out of the page's layout. */
+.webrecan-banner.is-floating { position: fixed; left: 16px; bottom: 76px; z-index: 2147483000; margin: 0; max-width: min(560px, calc(100vw - 32px)); max-height: 60vh; overflow: auto; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2); }
