@@ -6,25 +6,18 @@ const WEBRECAN_DEFAULTS = {
   hideTestFiles: true, // names starting with "test"
   hideInputOutputFiles: true, // "input" or "output" anywhere in the name
   hideInstructionsRecording: true, // instructions.recording.jsonl.gz
-  hideNamesContaining: "", // more words, separated by commas: any file whose name contains one is hidden
   sortOrder: "recordings", // "recordings" (recordings first), "python" (.py files first) or "default" (Gradescope's order)
   autoCollapse: true, // collapse the file Gradescope opens by default
 };
 
 const WEBRECAN_SORT_ORDERS = ["recordings", "python", "default"];
 
-/** The extra words from the "also hide" box: trimmed, lowercased, empty ones dropped. */
-function webrecanCustomWords(text) {
-  return String(text || "").split(",").map((word) => word.trim().toLowerCase()).filter(Boolean);
-}
-
 /** Is this file hidden (and ignored by the flag and quality checks)? Only the file's own name counts, not its folders. */
 function webrecanIgnored(settings, path) {
   const name = String(path).split("/").pop().toLowerCase();
   if (settings.hideTestFiles && name.startsWith("test")) return true;
   if (settings.hideInstructionsRecording && name === "instructions.recording.jsonl.gz") return true;
-  if (settings.hideInputOutputFiles && (name.includes("input") || name.includes("output"))) return true;
-  return webrecanCustomWords(settings.hideNamesContaining).some((word) => name.includes(word));
+  return !!settings.hideInputOutputFiles && (name.includes("input") || name.includes("output"));
 }
 
 /** 0 for the files that go on top in this order, 1 for the rest. */

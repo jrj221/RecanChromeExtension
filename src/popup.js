@@ -4,13 +4,13 @@
 const area = chrome.storage.sync ?? chrome.storage.local;
 const checkboxes = ["hideTestFiles", "hideInputOutputFiles", "hideInstructionsRecording", "autoCollapse"];
 const $ = (id) => document.getElementById(id);
+const sortRadios = () => [...document.querySelectorAll('input[name="sortOrder"]')];
 const status = $("status");
 let statusTimer;
 
 function show(settings) {
   for (const id of checkboxes) $(id).checked = settings[id];
-  $("hideNamesContaining").value = settings.hideNamesContaining;
-  $("sortOrder").value = settings.sortOrder;
+  for (const radio of sortRadios()) radio.checked = radio.value === settings.sortOrder;
 }
 
 function say(message) {
@@ -38,8 +38,7 @@ async function start() {
     say("Couldn't read the saved settings");
   }
   for (const id of checkboxes) $(id).addEventListener("change", () => save({ [id]: $(id).checked }));
-  $("sortOrder").addEventListener("change", () => save({ sortOrder: $("sortOrder").value }));
-  $("hideNamesContaining").addEventListener("input", () => save({ hideNamesContaining: $("hideNamesContaining").value }));
+  for (const radio of sortRadios()) radio.addEventListener("change", () => radio.checked && save({ sortOrder: radio.value }));
   $("reset").addEventListener("click", async () => {
     await save(WEBRECAN_DEFAULTS);
     show(WEBRECAN_DEFAULTS);

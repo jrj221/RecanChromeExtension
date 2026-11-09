@@ -7,8 +7,8 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const source = readFileSync(resolve(root, "src/settings.js"), "utf8");
-const { WEBRECAN_DEFAULTS, webrecanIgnored, webrecanCompareFiles, webrecanNormalize, webrecanCustomWords } = new Function(
-  `${source}; return { WEBRECAN_DEFAULTS, webrecanIgnored, webrecanCompareFiles, webrecanNormalize, webrecanCustomWords };`,
+const { WEBRECAN_DEFAULTS, webrecanIgnored, webrecanCompareFiles, webrecanNormalize } = new Function(
+  `${source}; return { WEBRECAN_DEFAULTS, webrecanIgnored, webrecanCompareFiles, webrecanNormalize };`,
 )();
 
 // ---- hidden files ----
@@ -32,14 +32,6 @@ assert.equal(hidden({ hideInstructionsRecording: false }, "my_instructions.recor
 assert.equal(hidden({ hideTestFiles: false, hideInputOutputFiles: false, hideInstructionsRecording: false }, "test_output.py"), false, "everything off: nothing is hidden");
 console.log("ok   each hiding rule can be switched off on its own");
 
-assert.deepEqual(webrecanCustomWords(" Scratch,  OLD_ ,, "), ["scratch", "old_"]);
-assert.deepEqual(webrecanCustomWords(""), []);
-assert.equal(hidden({ hideNamesContaining: "scratch, old_" }, "my_Scratch_file.py"), true);
-assert.equal(hidden({ hideNamesContaining: "scratch, old_" }, "OLD_words.py"), true);
-assert.equal(hidden({ hideNamesContaining: "scratch, old_" }, "words.py"), false);
-assert.equal(hidden({ hideNamesContaining: "," }, "words.py"), false, "an empty word hides nothing");
-assert.equal(hidden({ hideNamesContaining: "work" }, "work/words.py"), false, "folders aren't part of the name");
-console.log("ok   extra words to hide");
 
 // ---- order ----
 const order = (mode, names) => [...names].sort((a, b) => webrecanCompareFiles(mode, a, b));
@@ -55,8 +47,8 @@ assert.equal(webrecanNormalize({ sortOrder: "python" }).sortOrder, "python");
 assert.equal(webrecanNormalize({ sortOrder: "sideways" }).sortOrder, "recordings", "an unknown order falls back");
 assert.equal(webrecanNormalize({ autoCollapse: "yes" }).autoCollapse, true, "a value of the wrong kind falls back");
 assert.equal(webrecanNormalize({ autoCollapse: false }).autoCollapse, false);
-assert.equal(webrecanNormalize({ hideNamesContaining: 5 }).hideNamesContaining, "");
 assert.equal("surprise" in webrecanNormalize({ surprise: 1 }), false, "unknown keys are dropped");
+assert.equal("hideNamesContaining" in webrecanNormalize({ hideNamesContaining: "x" }), false, "the removed custom-words setting is dropped");
 console.log("ok   stored settings are cleaned up");
 
 // ---- wiring ----
@@ -68,6 +60,11 @@ const html = readFileSync(resolve(root, "src/popup.html"), "utf8");
 assert.ok(html.indexOf('src="settings.js"') > -1 && html.indexOf('src="settings.js"') < html.indexOf('src="popup.js"'), "the popup loads settings.js first");
 assert.ok(!/<script(?![^>]*\bsrc=)[^>]*>/i.test(html), "no inline scripts (the extension's content security policy forbids them)");
 const popup = readFileSync(resolve(root, "src/popup.js"), "utf8");
-for (const key of Object.keys(WEBRECAN_DEFAULTS)) assert.ok(html.includes(`id="${key}"`), `the popup has a control for ${key}`);
+for (const key of Object.keys(WEBRECAN_DEFAULTS)) {
+  if (key === "sortOrder") continue; // radio buttons, below
+  assert.ok(html.includes(`id="${key}"`), `the popup has a control for ${key}`);
+}
+for (const order of ["recordings", "python", "default"]) assert.ok(html.includes(`name="sortOrder" value="${order}"`), `the popup has a radio button for the ${order} order`);
+assert.ok(!html.includes("<select"), "the file order is radio buttons, not a dropdown");
 assert.ok(popup.includes("webrecanNormalize"));
 console.log("ok   the manifest and the popup are wired to the settings");

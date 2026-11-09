@@ -8,53 +8,47 @@
 </head>
 <body>
   <header>
-    <img src="../icons/icon-32.png" alt="" width="20" height="20">
-    <h1>WebRecan</h1>
+    <img src="../icons/icon-32.png" alt="" width="28" height="28">
+    <div class="titles">
+      <h1>WebRecan</h1>
+      <p>Settings</p>
+    </div>
     <span id="version"></span>
   </header>
 
-  <details class="group" open>
-    <summary>Hidden files</summary>
-    <div class="body">
-      <label class="row"><input type="checkbox" id="hideTestFiles"> Names starting with “test”</label>
-      <label class="row"><input type="checkbox" id="hideInputOutputFiles"> Names with “input” or “output” in them</label>
-      <label class="row"><input type="checkbox" id="hideInstructionsRecording"> The instructions recording</label>
-      <label class="stack">
-        <span>Also hide names containing</span>
-        <input type="text" id="hideNamesContaining" placeholder="scratch, old_" autocomplete="off" spellcheck="false">
-        <span class="hint">Separate words with commas; capitals don’t matter.</span>
-      </label>
-      <p class="hint">Hidden files aren’t shown, analyzed, flagged or checked for code quality.</p>
-    </div>
-  </details>
+  <main>
+    <details class="group">
+      <summary>Hidden files</summary>
+      <div class="body">
+        <label class="row"><span class="label">Names starting with “test”</span><input class="switch" type="checkbox" id="hideTestFiles"></label>
+        <label class="row"><span class="label">Names with “input” or “output”</span><input class="switch" type="checkbox" id="hideInputOutputFiles"></label>
+        <label class="row"><span class="label">Names with "instructions"</span><input class="switch" type="checkbox" id="hideInstructionsRecording"></label>
+        <p class="hint">Hidden files aren’t shown, analyzed, flagged or checked for code quality.</p>
+      </div>
+    </details>
 
-  <details class="group" open>
-    <summary>File order</summary>
-    <div class="body">
-      <label class="stack">
-        <span>Show files in this order</span>
-        <select id="sortOrder">
-          <option value="recordings">Recordings first</option>
-          <option value="python">.py files first</option>
-          <option value="default">Gradescope’s own order</option>
-        </select>
-        <span class="hint">Alphabetical within each group.</span>
-      </label>
-    </div>
-  </details>
+    <details class="group">
+      <summary>File order</summary>
+      <div class="body" role="radiogroup" aria-label="File order">
+        <label class="option"><input class="radio" type="radio" name="sortOrder" value="recordings"><span class="label">Recordings first</span></label>
+        <label class="option"><input class="radio" type="radio" name="sortOrder" value="python"><span class="label">.py files first</span></label>
+        <label class="option"><input class="radio" type="radio" name="sortOrder" value="default"><span class="label">Gradescope’s own order</span></label>
+        <p class="hint">Alphabetical within each group.</p>
+      </div>
+    </details>
 
-  <details class="group" open>
-    <summary>Behavior</summary>
-    <div class="body">
-      <label class="row"><input type="checkbox" id="autoCollapse"> Collapse the file Gradescope opens by default</label>
-    </div>
-  </details>
+    <details class="group">
+      <summary>Behavior</summary>
+      <div class="body">
+        <label class="row"><span class="label">Collapse the first file when a submission opens</span><input class="switch" type="checkbox" id="autoCollapse"></label>
+      </div>
+    </details>
+  </main>
 
   <footer>
-    <button type="button" id="reset">Reset to defaults</button>
     <span id="status" role="status" aria-live="polite"></span>
+    <button type="button" id="reset">Reset to defaults</button>
   </footer>
-  <p class="hint note">Changes apply to open Gradescope pages right away.</p>
 
   <script src="settings.js"></script>
   <script src="popup.js"></script>

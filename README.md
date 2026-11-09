@@ -175,9 +175,8 @@ as soon as you make it and applies to open Gradescope pages right away. They are
 so they follow your Chrome profile to another computer when sync is on.
 
 - **Hidden files.** Turn each rule on or off: names starting with `test`, names with `input` or `output` in them, and
-  the instructions recording. You can also list your own words (separated by commas, capitals don't matter); any file
-  whose name contains one is hidden. A hidden file isn't shown, analyzed, flagged or checked for code quality, so
-  un-hiding a file also gets it checked.
+  the instructions recording. A hidden file isn't shown, analyzed, flagged or checked for code quality, so un-hiding a
+  file also gets it checked.
 - **File order.** Recordings first, `.py` files first, or Gradescope's own order. Files are alphabetical within each
   group. This only changes how the list is drawn, not Gradescope's page.
 - **Behavior.** Collapse the file Gradescope opens by default (once per submission, so you can still open it yourself).
@@ -313,7 +312,7 @@ When the recording has any of these (each recording is checked on its own):
 
 Recordings whose names start with `test` (like `test_words.recording.jsonl.gz`), or that have `input` or `output`
 anywhere in the name (like `words_output.recording.jsonl.gz`), are hidden along with the other test files, and so are
-`.py` and other files named that way (these rules, and any words of your own, can be changed in the
+`.py` and other files named that way (these rules can be switched on or off in the
 [toolbar popup](#settings)). They are never analyzed or flagged and don't appear in the fallback recordings panel.
 
 Everything is worked out by recan itself (`recan summary --json`); the extension only applies the 2 minute rule and
