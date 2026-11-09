@@ -289,8 +289,10 @@ When the recording has any of these (each recording is checked on its own):
 - **A starter-code mismatch.** The recording doesn't begin with the assignment's starter code. This is only checked if
   you set up [the optional starter-code step](#optional-starter-code-checks).
 
-Recordings whose names start with `test` (like `test_words.recording.jsonl.gz`) are hidden along with the other
-test files. They are never analyzed or flagged and don't appear in the fallback recordings panel.
+Recordings whose names start with `test` (like `test_words.recording.jsonl.gz`), or that have `input` or `output`
+anywhere in the name (like `words_output.recording.jsonl.gz`), are hidden along with the other test files, and so are
+`.py` and other files named that way. They are never analyzed or flagged and don't appear in the fallback recordings
+panel.
 
 Everything is worked out by recan itself (`recan summary --json`); the extension only applies the 2 minute rule and
 counts the results. The 2 minutes is `MIN_ACTIVE_SECONDS` in `src/flags.js` (and `src/content.js`, which can't share

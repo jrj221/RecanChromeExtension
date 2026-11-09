@@ -543,8 +543,18 @@ class IgnoredFiles(unittest.TestCase):
         for name in ("test_calculator.py", "tests.py", "testing_area.py", "Test_Words.py", "hw/sub/test_x.py", "C:\\work\\test_x.py"):
             self.assertTrue(is_ignored(name), name)
 
+    def test_names_with_input_or_output_anywhere_are_ignored(self):
+        for name in ("words_output.py", "words_input.py", "Words_OUTPUT.py", "hw/sub/a_input.py", "a_output.txt",
+                     "output.py", "input.py", "inputs.py", "my_outputs.py", "a_output_final.py", "get_input_value.py",
+                     "a_output.recording.jsonl.gz"):
+            self.assertTrue(is_ignored(name), name)
+
+    def test_the_folder_is_not_part_of_the_name(self):
+        for name in ("input/solution.py", "hw/output/solution.py", "C:\\work\\input\\a.py"):
+            self.assertFalse(is_ignored(name), name)
+
     def test_other_names_are_not(self):
-        for name in ("calculator.py", "my_test.py", "contest.py", "latest.py", "hw/test/solution.py"):
+        for name in ("calculator.py", "my_test.py", "contest.py", "latest.py", "hw/test/solution.py", "words.py", "puts.py"):
             self.assertFalse(is_ignored(name), name)
 
     def test_check_files_leaves_ignored_files_out(self):
