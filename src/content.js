@@ -11,12 +11,12 @@
 const GZ = /\.gz(\?|$)/i;
 const PY = /\.py$/i;
 
-// Files whose names start with "test" (test_calculator.py, test_words.recording.jsonl.gz, ...), and the
-// instructions recording (instructions.recording.jsonl.gz), are hidden from the file view and ignored by
-// the flag checks. The "test" rule is also in is_ignored in checker/quality.py (the instructions recording
-// isn't a .py file, so the code quality checks never see it).
-const IGNORED_FILE = /^(test|instructions\.recording\.jsonl\.gz$)/i;
-const isTestFile = (path) => IGNORED_FILE.test(String(path).split("/").pop());
+// Hidden files (test files, ...): which ones is set in the toolbar popup; see src/settings.js. They are hidden from the
+// file view and ignored by the flag and quality checks. (Whether code quality skips the names itself is up to this
+// side: the checker is called without its own list, so un-hiding a file also gets it checked.)
+let settings = { ...WEBRECAN_DEFAULTS };
+let settingsLoaded = false;
+const isTestFile = (path) => webrecanIgnored(settings, path);
 const MARK = "data-webrecan";
 // Everything this extension adds to the page; its own text and elements must never be read as the page's.
 const OUR_ELEMENTS = ".webrecan-ctl, .webrecan-pop, .webrecan-banner, .webrecan-lockbar, .webrecan-dialog, .webrecan-autograder, #webrecan-panel";
@@ -143,7 +143,7 @@ function filesFromLinks(root) {
   return files;
 }
 
-/** All submitted files, plus the non-test recordings and Python sources. */
+/** All the submitted files. (Which are recordings and sources depends on the settings; see currentPage.) */
 function parsePage(root) {
   const data = findSubmissionData(root);
   const props = data?.props ?? assignmentProps(root);
@@ -158,8 +158,6 @@ function parsePage(root) {
     previousFlag: previousSubmissionsFlag(root),
     owner: findOwner(root),
     files: files.map(describe),
-    recordings: files.filter((f) => GZ.test(f.path || "") && !isTestFile(f.path)).map(describe),
-    sources: files.filter((f) => PY.test(f.path || "") && !isTestFile(f.path)).map(describe),
   };
 }
 
@@ -167,7 +165,7 @@ function parsePage(root) {
 // page. The props in the DOM then still belong to the submission we first loaded, so
 // for any other URL we fetch that page and read its props instead.
 const loadedPath = location.pathname;
-const pagesByPath = new Map(); // pathname -> { recordings, sources }, for pages other than loadedPath
+const pagesByPath = new Map(); // pathname -> the parsed page, for pages other than loadedPath
 
 function currentPage() {
   const path = location.pathname;
@@ -176,7 +174,7 @@ function currentPage() {
   if (path === loadedPath) parsed = parsePage(document);
   else {
     if (!pagesByPath.has(path)) {
-      pagesByPath.set(path, { files: [], recordings: [], sources: [] }); // until the fetch finishes (or if it fails)
+      pagesByPath.set(path, { files: [] }); // until the fetch finishes (or if it fails)
       fetch(location.pathname + location.search, { credentials: "include" })
         .then((res) => (res.ok ? res.text() : Promise.reject(new Error(`HTTP ${res.status}`))))
         .then((html) => {
@@ -187,8 +185,12 @@ function currentPage() {
     }
     parsed = pagesByPath.get(path);
   }
+  // Hidden files are neither analyzed nor checked. Worked out here, not when the page is parsed, so a change in
+  // the settings applies to pages already read.
+  const recordings = parsed.files.filter((f) => GZ.test(f.name || "") && !isTestFile(f.name));
+  const sources = parsed.files.filter((f) => PY.test(f.name || "") && !isTestFile(f.name));
   // The recording names tell us which assignment's starter code to use (see starter.js).
-  return { ...parsed, assignmentId, recordingNames: parsed.recordings.map((r) => r.name) };
+  return { ...parsed, recordings, sources, assignmentId, recordingNames: recordings.map((r) => r.name) };
 }
 
 // ---- talking to the extension ----
@@ -1589,16 +1591,23 @@ function renderFallback(unplaced) {
 // a moment to draw its file list. A recording that is in the page data but not in the visible
 // file list (e.g. left over from another assignment) is simply skipped.
 const FALLBACK_AFTER_MS = 3000;
-// Recordings (.gz) first, then everything else, each group in alphabetical order. The sections are not moved
+// In the chosen order (recordings first, .py files first, or Gradescope's own), each group alphabetical. The sections are not moved
 // (React owns them); the parent is made a column and each section gets a CSS `order`.
 const fileViewerName = (section) => (section.querySelector(".fileViewerHeader--toggleButton")?.textContent || "").trim();
-const byFileName = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
 function sortFileViewers() {
   const all = [...document.querySelectorAll("section.fileViewer")].map((node) => ({ node, name: fileViewerName(node) }));
-  // A test file's whole section is hidden (not just its contents), so no empty box is left in the column.
+  // A hidden file's whole section is hidden (not just its contents), so no empty box is left in the column.
   for (const { node, name } of all) if (isTestFile(name) && !node.hasAttribute(HIDDEN_TEST)) node.setAttribute(HIDDEN_TEST, "");
+  if (settings.sortOrder === "default") {
+    // Gradescope's own order: take back anything we set.
+    for (const { node } of all) {
+      if (node.style.order) node.style.order = "";
+      node.parentElement?.classList.remove("webrecan-sorted");
+    }
+    return;
+  }
   const sections = all.filter(({ name }) => !isTestFile(name));
-  sections.sort((a, b) => GZ.test(b.name) - GZ.test(a.name) || byFileName(a.name, b.name));
+  sections.sort((a, b) => webrecanCompareFiles(settings.sortOrder, a.name, b.name));
   sections.forEach(({ node }, i) => {
     node.parentElement?.classList.add("webrecan-sorted");
     if (node.style.order !== String(i + 1)) node.style.order = String(i + 1); // 0 is left for our banner
@@ -1611,6 +1620,10 @@ const OPEN_FILE_TOGGLE = '.fileViewerHeader.open button.fileViewerHeader--toggle
 let collapsedPath = "";
 function collapseFirstFile() {
   if (collapsedPath === location.pathname) return;
+  if (!settings.autoCollapse) {
+    collapsedPath = location.pathname; // switched off: leave this submission alone, even if it's switched on later
+    return;
+  }
   const toggle = document.querySelector(OPEN_FILE_TOGGLE);
   if (!toggle) return; // the files aren't drawn yet; try again on the next render
   collapsedPath = location.pathname;
@@ -1621,6 +1634,7 @@ let seenPath = "";
 let seenAt = Date.now();
 
 function render() {
+  if (!settingsLoaded) return; // the settings decide what is hidden and sorted, so wait for them
   // Remove lifeless copies of our elements (see `created`); live ones are re-added below.
   for (const node of document.querySelectorAll(".webrecan-ctl, .webrecan-pop, .webrecan-banner, .webrecan-lockbar, .webrecan-dialog, .webrecan-autograder, #webrecan-panel")) {
     if (!created.has(node)) node.remove();
@@ -1681,4 +1695,21 @@ new MutationObserver((mutations) => {
   clearTimeout(timer);
   timer = setTimeout(render, 150);
 }).observe(document.body, { childList: true, subtree: true, characterData: true });
-render();
+
+// The settings come from the toolbar popup (stored with the browser's extension storage, which follows the profile
+// from one computer to another where sync is on). A change applies right away.
+const settingsArea = chrome.storage.sync ?? chrome.storage.local;
+async function loadSettings() {
+  try {
+    settings = webrecanNormalize(await settingsArea.get(WEBRECAN_DEFAULTS));
+  } catch (e) {
+    console.warn("[webrecan] couldn't read the settings; using the defaults", e);
+  }
+  settingsLoaded = true;
+}
+chrome.storage.onChanged.addListener(async (_changes, area) => {
+  if (area !== (chrome.storage.sync ? "sync" : "local")) return;
+  await loadSettings();
+  render();
+});
+loadSettings().then(render);

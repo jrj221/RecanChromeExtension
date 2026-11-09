@@ -34,7 +34,7 @@ const summaryInPyodide = summarizeQuality(py, inPyodide);
 const python = JSON.parse(
   execFileSync(
     process.env.PYTHON || "python3",
-    ["-c", "import json, sys; sys.path.insert(0, sys.argv[1]); from checker.quality import check_files, summarize; r = check_files(json.load(sys.stdin)); print(json.dumps({'results': r, 'summary': summarize(r)}))", root],
+    ["-c", "import json, sys; sys.path.insert(0, sys.argv[1]); from checker.quality import check_files, summarize; r = check_files(json.load(sys.stdin), skip_ignored=False); print(json.dumps({'results': r, 'summary': summarize(r)}))", root],
     { input: JSON.stringify(files), maxBuffer: 1 << 28 },
   ).toString(),
 );

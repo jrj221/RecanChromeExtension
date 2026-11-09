@@ -543,14 +543,30 @@ class IgnoredFiles(unittest.TestCase):
         for name in ("test_calculator.py", "tests.py", "testing_area.py", "Test_Words.py", "hw/sub/test_x.py", "C:\\work\\test_x.py"):
             self.assertTrue(is_ignored(name), name)
 
+    def test_names_with_input_or_output_anywhere_are_ignored(self):
+        for name in ("words_output.py", "words_input.py", "Words_OUTPUT.py", "hw/sub/a_input.py", "a_output.txt",
+                     "output.py", "input.py", "inputs.py", "my_outputs.py", "a_output_final.py", "get_input_value.py",
+                     "a_output.recording.jsonl.gz"):
+            self.assertTrue(is_ignored(name), name)
+
+    def test_the_folder_is_not_part_of_the_name(self):
+        for name in ("input/solution.py", "hw/output/solution.py", "C:\\work\\input\\a.py"):
+            self.assertFalse(is_ignored(name), name)
+
     def test_other_names_are_not(self):
-        for name in ("calculator.py", "my_test.py", "contest.py", "latest.py", "hw/test/solution.py"):
+        for name in ("calculator.py", "my_test.py", "contest.py", "latest.py", "hw/test/solution.py", "words.py", "puts.py"):
             self.assertFalse(is_ignored(name), name)
 
     def test_check_files_leaves_ignored_files_out(self):
         bad = "while a:\n    while b:\n        pass\n"
         result = check_files([{"name": "test_words.py", "text": bad}, {"name": "words.py", "text": bad}])
         self.assertEqual([r["name"] for r in result], ["words.py"])
+
+    def test_the_caller_can_choose_to_check_every_file_it_passes(self):
+        bad = "while a:\n    while b:\n        pass\n"
+        files = [{"name": "test_words.py", "text": bad}, {"name": "words_output.py", "text": bad}, {"name": "words.py", "text": bad}]
+        result = check_files(files, skip_ignored=False)
+        self.assertEqual([r["name"] for r in result], ["test_words.py", "words_output.py", "words.py"])
 
     def test_scanning_a_folder_skips_them_but_a_named_file_is_checked(self):
         bad = "while a:\n    while b:\n        pass\n"

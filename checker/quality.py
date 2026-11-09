@@ -40,7 +40,8 @@ loops and long functions fail on the first one.
 A statement that wraps onto more lines (a long print(...), a list, a backslash continuation) may
 indent its continuation lines any way it likes; only new blocks are held to the 4-space rule.
 
-Files whose names start with "test" (test_calculator.py, tests.py, ...) are ignored: see is_ignored.
+Files whose names start with "test" (test_calculator.py, tests.py, ...), or have "input" or "output" anywhere in
+the name (words_output.py, ...), are ignored: see is_ignored.
 """
 from __future__ import annotations
 
@@ -62,11 +63,14 @@ MIN_SIMILAR_LINES = 4  # this many lines that match once names and values are bl
 MAX_COMPARED_LINES = 3000  # skip the duplication check on files longer than this
 
 IGNORED_PREFIX = "test"  # files whose names start with this are not checked
+IGNORED_WORDS = ("input", "output")  # ...nor are files with either of these anywhere in the name
 
 
 def is_ignored(name: str) -> bool:
-    """True for files the checks skip: names starting with "test" (any case), in any folder."""
-    return name.replace("\\", "/").split("/")[-1].lower().startswith(IGNORED_PREFIX)
+    """True for files the checks skip: names starting with "test", or containing "input" or "output" (any case),
+    in any folder (only the file's own name is looked at, not its folders)."""
+    base = name.replace("\\", "/").split("/")[-1].lower()
+    return base.startswith(IGNORED_PREFIX) or any(word in base for word in IGNORED_WORDS)
 
 
 # The checks, in the order they are reported, with the names shown to the grader.
@@ -456,16 +460,17 @@ def count_functions(source: str) -> int | None:
     return total
 
 
-def check_files(files: list[dict]) -> list[dict]:
+def check_files(files: list[dict], skip_ignored: bool = True) -> list[dict]:
     """Check several files. `files` is [{"name": ..., "text": ...}]; the result is JSON-friendly.
 
-    Ignored files (see is_ignored) are left out of the result entirely.
+    Ignored files (see is_ignored) are left out of the result entirely, unless `skip_ignored` is False: the
+    extension decides for itself which files to hide (a setting), so it passes only the files it wants checked.
     """
     return [
         {"name": f["name"], "issues": [asdict(issue) for issue in check_source(f["text"])],
          "functions": count_functions(f["text"])}
         for f in files
-        if not is_ignored(f["name"])
+        if not (skip_ignored and is_ignored(f["name"]))
     ]
 
 
