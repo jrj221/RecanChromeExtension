@@ -33,15 +33,17 @@ json.dumps(check_files(json.loads(QUALITY_FILES)))
  * One row per check, from the per-file results: { rule, label, count, allowed, failed, files }.
  * A check fails when it was broken more than its allowance across ALL the files together
  * (see checker/quality.py: summarize), so this has to look at the whole submission at once.
+ * `minFunctions` (or null for no such check) is the fewest functions the submission may define.
  */
-export function summarizeQuality(py, results) {
+export function summarizeQuality(py, results, minFunctions = null) {
   py.globals.set("QUALITY_RESULTS", JSON.stringify(results));
+  py.globals.set("QUALITY_MIN_FUNCTIONS", JSON.stringify(minFunctions));
   const json = py.runPython(`
 import json, sys
 sys.path.insert(0, "${HOME}")
 from checker.quality import summarize
 
-json.dumps(summarize(json.loads(QUALITY_RESULTS)))
+json.dumps(summarize(json.loads(QUALITY_RESULTS), min_functions=json.loads(QUALITY_MIN_FUNCTIONS)))
 `);
   return JSON.parse(json);
 }

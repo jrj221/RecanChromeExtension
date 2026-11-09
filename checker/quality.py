@@ -29,6 +29,9 @@ The checks, and the judgment calls where the rules leave room for interpretation
                    or more identical lines that appears twice, or a run of MIN_SIMILAR_LINES or
                    more that appears twice and differs only in string contents, numbers and
                    variable names. Blank lines, comments and lines like `else:` or `return` don't count.
+  decomposition    The submission must define at least a minimum number of functions (module-level
+                   functions and the methods of module-level classes, counted across ALL the files
+                   together). Only checked when summarize() is given `min_functions`.
 
 Spacing slips are common and minor, so indentation and blank lines only FAIL when they happen
 more than twice across ALL the files together (see ALLOWED_VIOLATIONS and summarize). Nested while
@@ -435,19 +438,38 @@ def check_source(source: str) -> list[Issue]:
     return sorted(issues, key=lambda i: (i.line, i.rule))
 
 
+def count_functions(source: str) -> int | None:
+    """Functions defined at module level, plus the methods of module-level classes.
+
+    None when the file can't be parsed (there's no telling how many it has).
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+    total = 0
+    for node in tree.body:
+        if _is_function(node):
+            total += 1
+        elif isinstance(node, ast.ClassDef):
+            total += sum(1 for child in node.body if _is_function(child))
+    return total
+
+
 def check_files(files: list[dict]) -> list[dict]:
     """Check several files. `files` is [{"name": ..., "text": ...}]; the result is JSON-friendly.
 
     Ignored files (see is_ignored) are left out of the result entirely.
     """
     return [
-        {"name": f["name"], "issues": [asdict(issue) for issue in check_source(f["text"])]}
+        {"name": f["name"], "issues": [asdict(issue) for issue in check_source(f["text"])],
+         "functions": count_functions(f["text"])}
         for f in files
         if not is_ignored(f["name"])
     ]
 
 
-def summarize(results: list[dict], strict: bool = False) -> list[dict]:
+def summarize(results: list[dict], strict: bool = False, min_functions: int | None = None) -> list[dict]:
     """One row per check, from the per-file results of check_files.
 
     With `strict`, nothing is allowed: a check that is usually tolerated a couple of times (see
@@ -457,6 +479,10 @@ def summarize(results: list[dict], strict: bool = False) -> list[dict]:
     A check fails when it was broken more than ALLOWED_VIOLATIONS times across ALL the files
     together (more than 0 times if it isn't listed there). `files` names the files that broke it,
     and is only filled in when the check failed.
+
+    With `min_functions`, a "decomposition" row is added: it fails when the files define fewer than
+    that many functions in total. It is skipped when a file can't be parsed (its functions can't be
+    counted) or there are no files. Without it (the command line, the PyCharm plugin) there is no such row.
     """
     checks = list(CHECKS)
     if any(issue["rule"] == SYNTAX_CHECK[0] for r in results for issue in r["issues"]):
@@ -476,6 +502,16 @@ def summarize(results: list[dict], strict: bool = False) -> list[dict]:
                 for r in results for i in r["issues"] if i["rule"] == rule
             ]
         rows.append(row)
+    counts = [r.get("functions") for r in results]
+    if min_functions is not None and results and None not in counts:
+        total = sum(counts)
+        failed = total < min_functions
+        rows.append({
+            "rule": "decomposition",
+            "label": f"At least {min_functions} function{'s' if min_functions != 1 else ''} (found {total})",
+            "count": 1 if failed else 0, "allowed": 0, "failed": failed,
+            "files": [r["name"] for r in results] if failed else [],
+        })
     return rows
 
 

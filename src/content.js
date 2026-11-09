@@ -20,32 +20,46 @@ const isTestFile = (path) => IGNORED_FILE.test(String(path).split("/").pop());
 const MARK = "data-webrecan";
 // Everything this extension adds to the page; its own text and elements must never be read as the page's.
 const OUR_ELEMENTS = ".webrecan-ctl, .webrecan-pop, .webrecan-banner, .webrecan-autograder, #webrecan-panel";
-// ---- minimum non-idle time per assignment ----
+// ---- per-assignment limits ----
 //
-// A recording whose non-idle time is under the assignment's minimum is flagged. EDIT THE MINUTES HERE:
-// add a line to MIN_ACTIVE_MINUTES with the assignment's title exactly as Gradescope shows it
-// (case doesn't matter), e.g.  "Homework 4c - Program Arguments": 10,   Anything not listed uses DEFAULT_MIN_ACTIVE_MINUTES.
+// EDIT THE LIMITS HERE. Each table is keyed by the assignment's title exactly as Gradescope shows it (case
+// doesn't matter), e.g.  "Homework 4b": 10,   Anything not listed uses the default above its table.
+
+// Minimum non-idle time, in minutes: a recording under it is flagged.
 const DEFAULT_MIN_ACTIVE_MINUTES = 2;
 const MIN_ACTIVE_MINUTES = {
-  "Homework 4c - Program Arguments": 0.5, // 30 seconds  
+  "Homework 4c - Program Arguments": 0.5, // 30 seconds
+  // "Homework 4b": 10,
+  // "Lab 4a - Strings": 5,
+};
+
+// Fewest functions the submission's .py files may define together (decomposition): fewer is flagged in the code quality box.
+const DEFAULT_MIN_FUNCTIONS = 2;
+const MIN_FUNCTIONS = {
+  // "Homework 4b": 3,
+  // "Lab 1 - Hello": 1,
 };
 
 /** The assignment's own title(s): page.assignmentTitle is several names joined with " | ". */
 const titleParts = (title) => String(title || "").split("|").map((t) => t.trim().toLowerCase()).filter(Boolean);
 
-/** The minimum non-idle seconds for the assignment with this title. */
-function minActiveSeconds(title) {
+/** The value in `table` for the assignment with this title, or `fallback`. */
+function limitFor(table, title, fallback) {
   const parts = titleParts(title);
-  for (const [name, minutes] of Object.entries(MIN_ACTIVE_MINUTES)) {
-    if (parts.includes(name.trim().toLowerCase())) return minutes * 60;
+  for (const [name, value] of Object.entries(table)) {
+    if (parts.includes(name.trim().toLowerCase())) return value;
   }
-  return DEFAULT_MIN_ACTIVE_MINUTES * 60;
+  return fallback;
 }
+
+/** The minimum non-idle seconds for the assignment with this title. */
+const minActiveSeconds = (title) => limitFor(MIN_ACTIVE_MINUTES, title, DEFAULT_MIN_ACTIVE_MINUTES) * 60;
+const minFunctions = (title) => limitFor(MIN_FUNCTIONS, title, DEFAULT_MIN_FUNCTIONS);
 
 const lowActive = (e) => e.activeSeconds < minActiveSeconds(page.assignmentTitle);
 // The recording's flags with the time check judged against this assignment's minimum.
 const isFlagged = (e) => lowActive(e) || e.flags.unapprovedPastes || e.flags.starterMismatch;
-// ---- end minimum time ----
+// ---- end per-assignment limits ----
 // Progress checks are meant to be short: a total recording time (idle included) over this is flagged.
 const MAX_PROGRESS_CHECK_SECONDS = 2 * 60 * 60;
 const isProgressCheck = (title) => /progress\s*check/i.test(title || "");
@@ -256,11 +270,12 @@ function prefetchRecordings(recordings) {
 }
 
 function requestQuality(sources) {
-  const key = sources.map((s) => s.id).join(",");
+  const min = minFunctions(page.assignmentTitle);
+  const key = sources.map((s) => s.id).join(",") + `|${min}`;
   if (key === quality.key) return;
   quality = { key, status: sources.length ? "pending" : "none" };
   if (!sources.length) return;
-  send({ type: "quality", files: sources.map(({ id, url, name }) => ({ id, url, name })) })
+  send({ type: "quality", files: sources.map(({ id, url, name }) => ({ id, url, name })), minFunctions: min })
     .then((res) => key === quality.key && (quality = { key, status: "done", checks: res.checks }))
     .catch((e) => key === quality.key && (quality = { key, status: "error", error: e.message }))
     .finally(paintBanner);

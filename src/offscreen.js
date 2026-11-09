@@ -169,7 +169,7 @@ async function handle(msg) {
       }
       const results = msg.files.map((f) => ({ id: f.id, ...qualityResults.get(f.id) }));
       // Whether a check fails depends on the totals across all of this submission's files.
-      const checks = await serial(async () => summarizeQuality(await getPython(), results));
+      const checks = await serial(async () => summarizeQuality(await getPython(), results, msg.minFunctions ?? null));
       return { results, checks };
     }
     case "view": {

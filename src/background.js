@@ -110,7 +110,7 @@ const handlers = {
 
   // Code-quality checks for the submission's .py files (not related to recan).
   async quality(msg) {
-    const res = await callEngine({ op: "quality", files: msg.files });
+    const res = await callEngine({ op: "quality", files: msg.files, minFunctions: msg.minFunctions });
     return { results: res.results, checks: res.checks };
   },
 

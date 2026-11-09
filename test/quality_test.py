@@ -340,6 +340,47 @@ class NoBlankLines(unittest.TestCase):
         self.assertFalse(self.failed("def a():\n    pass\n\ndef b():\n    pass\n"))
 
 
+class Decomposition(unittest.TestCase):
+    """The submission must define at least `min_functions` functions, counted across all its files."""
+
+    def rows(self, files, minimum):
+        results = check_files([{"name": n, "text": t} for n, t in files])
+        return {r["rule"]: r for r in summarize(results, min_functions=minimum)}
+
+    def test_one_function_fails_the_default_of_two(self):
+        found = self.rows([("a.py", "def main():\n    pass\n")], 2)["decomposition"]
+        self.assertTrue(found["failed"])
+        self.assertEqual(found["files"], ["a.py"])
+        self.assertIn("found 1", found["label"])
+
+    def test_two_functions_pass(self):
+        self.assertFalse(self.rows([("a.py", "def a():\n    pass\n\n\ndef b():\n    pass\n")], 2)["decomposition"]["failed"])
+
+    def test_functions_are_counted_across_files(self):
+        files = [("a.py", "def a():\n    pass\n"), ("b.py", "def b():\n    pass\n")]
+        self.assertFalse(self.rows(files, 2)["decomposition"]["failed"])
+
+    def test_class_methods_count_but_nested_functions_do_not(self):
+        source = "class C:\n    def a(self):\n        pass\n\n    def b(self):\n        pass\n"
+        self.assertFalse(self.rows([("a.py", source)], 2)["decomposition"]["failed"])
+        nested = "def a():\n    def inner():\n        pass\n"
+        self.assertTrue(self.rows([("a.py", nested)], 2)["decomposition"]["failed"])
+
+    def test_the_minimum_can_be_lowered_or_raised(self):
+        one = [("a.py", "def a():\n    pass\n")]
+        self.assertFalse(self.rows(one, 1)["decomposition"]["failed"])
+        self.assertTrue(self.rows(one, 3)["decomposition"]["failed"])
+
+    def test_a_file_python_cant_read_skips_the_check(self):
+        self.assertNotIn("decomposition", self.rows([("a.py", "def a(:\n")], 2))
+
+    def test_test_files_are_not_counted_and_no_minimum_means_no_row(self):
+        files = [("a.py", "def a():\n    pass\n"), ("test_a.py", "def t1():\n    pass\n\n\ndef t2():\n    pass\n")]
+        self.assertTrue(self.rows(files, 2)["decomposition"]["failed"])
+        results = check_files([{"name": "a.py", "text": "x = 1\n"}])
+        self.assertNotIn("decomposition", [r["rule"] for r in summarize(results)])
+
+
 class Strict(unittest.TestCase):
     """strict=True: slips that are normally tolerated a couple of times fail on the first one."""
 
@@ -591,7 +632,7 @@ class Api(unittest.TestCase):
             {"name": "ok.py", "text": "x = 1\n"},
             {"name": "bad.py", "text": "while a:\n    while b:\n        pass\n"},
         ])
-        self.assertEqual(result[0], {"name": "ok.py", "issues": []})
+        self.assertEqual(result[0], {"name": "ok.py", "issues": [], "functions": 0})
         self.assertEqual(result[1]["issues"][0]["rule"], "nested-while")
         json.dumps(result)
 
