@@ -19,7 +19,7 @@ const IGNORED_FILE = /^(test|instructions\.recording\.jsonl\.gz$)/i;
 const isTestFile = (path) => IGNORED_FILE.test(String(path).split("/").pop());
 const MARK = "data-webrecan";
 // Everything this extension adds to the page; its own text and elements must never be read as the page's.
-const OUR_ELEMENTS = ".webrecan-ctl, .webrecan-pop, .webrecan-banner, .webrecan-autograder, #webrecan-panel";
+const OUR_ELEMENTS = ".webrecan-ctl, .webrecan-pop, .webrecan-banner, .webrecan-lockbar, .webrecan-dialog, .webrecan-autograder, #webrecan-panel";
 // ---- per-assignment limits ----
 //
 // EDIT THE LIMITS HERE. Each table is keyed by the assignment's title exactly as Gradescope shows it (case
@@ -156,6 +156,7 @@ function parsePage(root) {
   return {
     assignmentTitle,
     previousFlag: previousSubmissionsFlag(root),
+    owner: findOwner(root),
     files: files.map(describe),
     recordings: files.filter((f) => GZ.test(f.path || "") && !isTestFile(f.path)).map(describe),
     sources: files.filter((f) => PY.test(f.path || "") && !isTestFile(f.path)).map(describe),
@@ -282,6 +283,11 @@ function requestQuality(sources) {
 }
 
 function paintBanner() {
+  paintBannerBox();
+  paintLockButton();
+}
+
+function paintBannerBox() {
   if (quality.status === "none" && !previousFlag) {
     banner?.remove();
     banner = null;
@@ -966,6 +972,406 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+// ---- lock resubmission ----
+//
+// Two buttons under the total points (on the grade page).
+//   Lock Assignment    gives the student an extension whose due date has already passed and that has no late due
+//                      date, so they can't submit again.
+//   Unlock Assignment  opens a small date picker; it then gives the student an extension with the due date you
+//                      pick (and no late due date), replacing any extension they had.
+// They send the same requests as Gradescope's own extension forms, from the logged-in page, using the page's
+// CSRF token. Each asks first.
+
+const LOCK_TIME_ZONE = "America/Denver"; // the course's time zone; Gradescope's API takes UTC, so times are converted here
+const LOCK_DAYS_AGO = 1; // Lock: the due date is this many days back...
+const LOCK_HOUR = 23; // ...at this time of day
+const LOCK_MINUTE = 59;
+
+/** Minutes the zone is ahead of UTC at this moment (negative for Denver). */
+function zoneOffsetMinutes(ms, zone) {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: zone, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric" }).formatToParts(new Date(ms));
+  const v = Object.fromEntries(parts.map((part) => [part.type, Number(part.value)]));
+  return (Date.UTC(v.year, v.month - 1, v.day, v.hour, v.minute, v.second) - ms) / 60000;
+}
+
+/** The moment it is year-month-day hour:minute on the wall clock in `zone` (daylight saving included). */
+function zonedInstant(year, month, day, hour, minute, zone) {
+  const guess = Date.UTC(year, month - 1, day, hour, minute);
+  const first = guess - zoneOffsetMinutes(guess, zone) * 60000;
+  return new Date(guess - zoneOffsetMinutes(first, zone) * 60000);
+}
+
+/** The due date to set: `daysAgo` days before today (in the course's time zone) at LOCK_HOUR:LOCK_MINUTE. */
+function lockDueDate(now = new Date(), daysAgo = LOCK_DAYS_AGO) {
+  const today = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: LOCK_TIME_ZONE, year: "numeric", month: "numeric", day: "numeric" }).formatToParts(now).map((p) => [p.type, Number(p.value)]));
+  const day = new Date(Date.UTC(today.year, today.month - 1, today.day - daysAgo));
+  return zonedInstant(day.getUTCFullYear(), day.getUTCMonth() + 1, day.getUTCDate(), LOCK_HOUR, LOCK_MINUTE, LOCK_TIME_ZONE);
+}
+
+const isoNoMillis = (date) => date.toISOString().replace(".000Z", "Z");
+
+/** "2026-11-09T23:59": the wall-clock time in the course's time zone, as a datetime-local input writes it. */
+function wallTime(date, zone = LOCK_TIME_ZONE) {
+  const v = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: zone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(date).map((p) => [p.type, p.value]));
+  return `${v.year}-${v.month}-${v.day}T${v.hour}:${v.minute}`;
+}
+
+/** The moment a datetime-local value ("2026-11-09T23:59") is, read as a wall-clock time in the course's time zone; null if it's blank or malformed. */
+function fromWallTime(value, zone = LOCK_TIME_ZONE) {
+  const m = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::\d{2})?$/);
+  return m ? zonedInstant(Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4]), Number(m[5]), zone) : null;
+}
+
+/** The request body Gradescope's form sends: a due date, and never a late due date (it is always removed). */
+const extensionBody = (userId, dueIso) => ({
+  override: { user_id: userId, settings: { due_date: { type: "absolute", value: dueIso }, hard_due_date: { type: "none", value: "" }, visible: true } },
+});
+const lockBody = (userId, dueIso) => extensionBody(userId, dueIso);
+
+/** The first array stored under `key` anywhere in parsed props. */
+function findArray(node, key, depth = 0) {
+  if (!node || typeof node !== "object" || depth > 12) return null;
+  if (!Array.isArray(node) && Array.isArray(node[key])) return node[key];
+  for (const value of Array.isArray(node) ? node : Object.values(node)) {
+    const found = findArray(value, key, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+/**
+ * The student this submission belongs to, { userId, name }, or null when it can't be told (or it's a group
+ * submission with several owners). The submission page lists `ownerships`; the grade page has no such list, but
+ * every file carries the student's `user_id` and the submission has `owner_names`.
+ */
+function findOwner(root) {
+  for (const node of root.querySelectorAll("[data-react-props]")) {
+    const raw = node.getAttribute("data-react-props") || "";
+    if (!raw.includes('"ownerships"') && !raw.includes('"owner_names"')) continue; // cheap check before parsing a big blob
+    let props;
+    try {
+      props = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    if (props?.assignment?.group_submission === true) continue;
+    let userId = null;
+    const owners = (findArray(props, "ownerships") || []).filter((o) => o && o.active !== false && Number.isInteger(o.user_id));
+    if (owners.length === 1) userId = owners[0].user_id;
+    else if (!owners.length) {
+      const ids = new Set((findArray(props, "files") || []).map((f) => f?.user_id).filter(Number.isInteger));
+      if (ids.size === 1) userId = [...ids][0];
+    }
+    if (userId === null) continue;
+    let name = typeof props?.submission?.owner_names === "string" ? props.submission.owner_names.trim() : "";
+    const look = (n, depth = 0) => {
+      if (name || !n || typeof n !== "object" || depth > 12) return;
+      if (!Array.isArray(n) && (n.user_id === userId || n.id === userId)) name = [n.full_name, n.name].find((v) => typeof v === "string" && v.trim()) || "";
+      for (const value of Array.isArray(n) ? n : Object.values(n)) look(value, depth + 1);
+    };
+    look(props);
+    return { userId, name };
+  }
+  return null;
+}
+
+/** { course, assignment } from the sidebar's Extensions link (the grade page's own address has no assignment id). */
+function extensionIds() {
+  for (const link of document.querySelectorAll('a[href$="/extensions"]')) {
+    const m = (link.getAttribute("href") || "").match(/\/courses\/(\d+)\/assignments\/(\d+)\/extensions$/);
+    if (m) return { course: m[1], assignment: m[2] };
+  }
+  return null;
+}
+
+let lockBar = null;
+let lockButton = null;
+let unlockButton = null;
+let dateState = { key: "", eff: null, loaded: false }; // the current student's dates; `loaded` once they have been read (eff stays null if they couldn't be)
+
+/**
+ * What the Extensions page says about everyone's dates: { rows, windows, assignment, zone }.
+ *   rows        user id -> { settings, window }: each extension (its due_date / hard_due_date) and the student's own base window
+ *   windows     user id -> the student's base window (their section's dates), for students with no extension
+ *   assignment  the assignment's own dates
+ * Dates are wall-clock strings in the course's time zone, like "2026-11-07T23:59".
+ */
+function parseExtensionsPage(root) {
+  const out = { rows: new Map(), windows: {}, assignment: null, zone: null };
+  for (const node of root.querySelectorAll("[data-react-props]")) {
+    const raw = node.getAttribute("data-react-props") || "";
+    if (!raw.includes('"override"') && !raw.includes('"studentSubmissionWindows"')) continue; // cheap check before parsing a big blob
+    let props;
+    try {
+      props = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    if (typeof props?.timezone?.identifier === "string") out.zone ??= props.timezone.identifier;
+    if (props?.override && Number.isInteger(props.userId)) out.rows.set(props.userId, { settings: props.override.settings || {}, window: props.fallbackSubmissionWindow || null });
+    if (props?.studentSubmissionWindows && typeof props.studentSubmissionWindows === "object") Object.assign(out.windows, props.studentSubmissionWindows);
+    if (props?.assignment && typeof props.assignment === "object" && "due_date" in props.assignment) out.assignment ??= props.assignment;
+  }
+  return out;
+}
+
+/** The student's due date and late due date as they stand now: { due, late (Dates or null), from, zone }. */
+function effectiveDates(data, userId) {
+  const zone = data.zone || LOCK_TIME_ZONE;
+  const row = data.rows.get(userId);
+  const base = row?.window || data.windows[String(userId)] || data.assignment || {};
+  const at = (value) => fromWallTime(value, zone);
+  const ext = row?.settings || {};
+  const overridden = (setting) => (setting?.type === "absolute" && setting.value ? at(setting.value) : undefined); // undefined: not overridden
+  let due = at(base.due_date);
+  let late = at(base.hard_due_date);
+  if (row) {
+    due = overridden(ext.due_date) ?? due;
+    if (ext.hard_due_date?.type === "none") late = null;
+    else late = overridden(ext.hard_due_date) ?? late; // absent: the base window's
+  }
+  return { due, late, from: row ? "extension" : "assignment", zone };
+}
+
+/** Locked = the last moment they can still submit (the late due date if there is one, else the due date) has passed. */
+function isLocked(eff, now = new Date()) {
+  const last = eff.late ?? eff.due;
+  return !!last && last <= now;
+}
+
+/** "Current due date: …" lines for the prompts. */
+function describeDates(eff) {
+  if (!eff) return "Couldn't read their current dates.";
+  const format = (d) => new Intl.DateTimeFormat("en-US", { timeZone: eff.zone, dateStyle: "medium", timeStyle: "short" }).format(d);
+  const source = eff.from === "extension" ? "from their extension" : "the assignment's own dates; no extension";
+  return `Current due date: ${eff.due ? format(eff.due) : "none"}${eff.late ? `\nCurrent late due date: ${format(eff.late)}` : ""}\n(${source})`;
+}
+
+const extensionPages = new Map(); // assignment id -> { at, promise } (the parsed Extensions page, kept for a minute)
+const EXTENSIONS_TTL_MS = 60 * 1000;
+
+function loadExtensionsPage(ids) {
+  const kept = extensionPages.get(ids.assignment);
+  if (kept && Date.now() - kept.at < EXTENSIONS_TTL_MS) return kept.promise;
+  const promise = fetch(`/courses/${ids.course}/assignments/${ids.assignment}/extensions`, { credentials: "include" }).then(async (res) => {
+    if (!res.ok) throw new Error(`HTTP ${res.status} loading the Extensions page`);
+    return parseExtensionsPage(new DOMParser().parseFromString(await res.text(), "text/html"));
+  });
+  extensionPages.set(ids.assignment, { at: Date.now(), promise });
+  promise.catch(() => extensionPages.delete(ids.assignment));
+  return promise;
+}
+
+/** This student's current dates, or null if they couldn't be read. */
+async function currentDates(ids, owner) {
+  try {
+    return effectiveDates(await loadExtensionsPage(ids), owner.userId);
+  } catch (e) {
+    console.warn("[webrecan] couldn't read the student's dates", e);
+    return null;
+  }
+}
+
+/** Read the student's dates again (after we changed their extension); the buttons keep their state until the new one arrives. */
+function refreshDates(ids, owner) {
+  extensionPages.delete(ids.assignment);
+  const key = `${ids.assignment}:${owner.userId}`;
+  currentDates(ids, owner).then((eff) => {
+    if (dateState.key !== key) return;
+    dateState = { key, eff, loaded: true };
+    paintLockButton();
+  });
+}
+
+/** What the prompts say about the student and the assignment. */
+function lockSubject(owner) {
+  const who = owner.name || `user ${owner.userId}`; // the id is only shown when the page gives no name
+  const title = page.assignmentTitle.split("|")[0].trim() || "this assignment";
+  return { who, title };
+}
+
+/** Everything a request needs, or an alert saying what's missing (null). */
+function lockContext() {
+  const ids = extensionIds();
+  const owner = page.owner;
+  const token = document.querySelector('meta[name="csrf-token"]')?.content;
+  if (!ids) alert("WebRecan: couldn't find this assignment's id (the Extensions link in the left menu), so nothing was sent.");
+  else if (!owner) alert("WebRecan: couldn't tell which single student this submission belongs to, so nothing was sent.");
+  else if (!token) alert("WebRecan: couldn't find Gradescope's security token on this page, so nothing was sent.");
+  else return { ids, owner, token, ...lockSubject(owner) };
+  return null;
+}
+
+/** Add an extension (POST the form's JSON); throws if Gradescope says no. */
+async function createExtension({ ids, token }, body) {
+  const res = await fetch(`/courses/${ids.course}/assignments/${ids.assignment}/extensions`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", Accept: "application/json", "X-CSRF-Token": token, "X-Requested-With": "XMLHttpRequest" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status} ${(await res.text()).slice(0, 300)}`);
+}
+
+async function lockResubmission() {
+  const ctx = lockContext();
+  if (!ctx) return;
+  lockButton.disabled = true;
+  try {
+    const eff = await currentDates(ctx.ids, ctx.owner);
+    const due = lockDueDate();
+    const format = (d) => new Intl.DateTimeFormat("en-US", { timeZone: LOCK_TIME_ZONE, dateStyle: "medium", timeStyle: "short" }).format(d);
+    if (!confirm(`Lock the assignment for ${ctx.who}\non ${ctx.title}?\n\n${describeDates(eff)}\n\nThis replaces it with an extension due ${format(due)} and removes the late due date.`)) return;
+    await createExtension(ctx, lockBody(ctx.owner.userId, isoNoMillis(due)));
+    refreshDates(ctx.ids, ctx.owner);
+  } catch (e) {
+    alert(`WebRecan: Gradescope didn't accept it. ${e.message}`);
+  } finally {
+    lockButton.disabled = false;
+    paintLockButton();
+  }
+}
+
+/** The date picker: resolves the due date (a Date) or null if cancelled. */
+function askUnlockDates({ who, title, current }) {
+  return new Promise((resolve) => {
+    const overlay = el("div", "webrecan-dialog");
+    created.add(overlay);
+    const box = el("div", "box");
+    const field = (label, hint) => {
+      const input = el("input");
+      input.type = "datetime-local";
+      const wrap = el("label", "field");
+      wrap.append(el("span", "name", label), input, el("span", "hint", hint));
+      return { wrap, input };
+    };
+    const due = field("New due date (Mountain time)", "When they can submit until. Any late due date is removed.");
+    due.input.value = wallTime(lockDueDate(new Date(), -1)); // tomorrow, 11:59 PM
+    const error = el("div", "error");
+    const cancel = el("button", "cancel", "Cancel");
+    const ok = el("button", "ok", "Unlock");
+    cancel.type = ok.type = "button";
+    const done = (value) => {
+      document.removeEventListener("keydown", onKey, true);
+      overlay.remove();
+      resolve(value);
+    };
+    const onKey = (event) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        done(null);
+      }
+    };
+    document.addEventListener("keydown", onKey, true);
+    cancel.addEventListener("click", () => done(null));
+    overlay.addEventListener("mousedown", (event) => event.target === overlay && done(null));
+    ok.addEventListener("click", () => {
+      const dueDate = fromWallTime(due.input.value);
+      if (!dueDate) return void (error.textContent = "Pick a due date.");
+      if (dueDate <= new Date()) return void (error.textContent = "The due date has to be in the future, or they still can't submit.");
+      done(dueDate);
+    });
+    const buttons = el("div", "buttons");
+    buttons.append(cancel, ok);
+    box.append(
+      el("div", "title", "Unlock Assignment"),
+      el("div", "about", `${who}\n${title}`),
+      el("div", "current", `${current}\nThis extension will be replaced.`),
+      due.wrap,
+      error,
+      buttons,
+    );
+    overlay.append(box);
+    document.body.append(overlay);
+    due.input.focus();
+  });
+}
+
+/** Let the student submit again: show their current dates, pick the new due date, replace their extension with it. */
+async function unlockResubmission() {
+  const ctx = lockContext();
+  if (!ctx) return;
+  unlockButton.disabled = true;
+  try {
+    const eff = await currentDates(ctx.ids, ctx.owner);
+    const picked = await askUnlockDates({ who: ctx.who, title: ctx.title, current: describeDates(eff) });
+    if (!picked) return;
+    // Adding an extension for a student replaces the one they had, so this is all it takes.
+    await createExtension(ctx, extensionBody(ctx.owner.userId, isoNoMillis(picked)));
+    refreshDates(ctx.ids, ctx.owner);
+    alert(`WebRecan: ${ctx.who} now has an extension due ${new Intl.DateTimeFormat("en-US", { timeZone: LOCK_TIME_ZONE, dateStyle: "medium", timeStyle: "short" }).format(picked)}.`);
+  } catch (e) {
+    alert(`WebRecan: Gradescope didn't accept it. ${e.message}\n\nCheck the student's extension on the Extensions page.`);
+  } finally {
+    unlockButton.disabled = false;
+    paintLockButton();
+  }
+}
+
+/** A button with a Font Awesome icon (Gradescope's pages already load it) and a label. */
+function iconButton(className, icon, label) {
+  const button = el("button", className);
+  const i = el("i", `fa ${icon}`);
+  i.setAttribute("aria-hidden", "true");
+  button.append(i, el("span", "", ` ${label}`));
+  button.type = "button";
+  return button;
+}
+
+/**
+ * The buttons sit side by side right under the total points ("10.0 / 10.0 pts"), on grade pages only. Only the one
+ * that makes sense shows: Lock while the student can still submit, Unlock once they can't. Nothing shows until the
+ * student's dates have been read (both show if they can't be).
+ */
+function paintLockButton() {
+  const onGradePage = /\/questions\/\d+\/submissions\/\d+\/grade/.test(location.pathname);
+  const ratio = document.querySelector(".totalPoints--ratio");
+  if (!onGradePage || !ratio) {
+    lockBar?.remove();
+    return;
+  }
+  if (!lockBar) {
+    lockBar = el("div", "webrecan-lockbar");
+    lockButton = iconButton("webrecan-lock", "fa-lock", "Lock Assignment");
+    unlockButton = iconButton("webrecan-lock webrecan-unlock", "fa-unlock", "Unlock Assignment");
+    lockButton.title = "Give this student an extension with a due date that has passed, so they can't submit again.";
+    unlockButton.title = "Let this student submit again: pick a new due date for their extension.";
+    lockButton.addEventListener("click", lockResubmission);
+    unlockButton.addEventListener("click", unlockResubmission);
+    lockBar.append(lockButton, unlockButton);
+    created.add(lockBar);
+  }
+  if (ratio.nextElementSibling !== lockBar) ratio.after(lockBar); // moved only when it isn't already there (moving it resets the hover)
+
+  const ids = extensionIds();
+  const owner = page.owner;
+  const parsed = "owner" in page; // false for the placeholder used while another submission's page is still being fetched
+  const key = ids && owner ? `${ids.assignment}:${owner.userId}` : "";
+  if (key !== dateState.key) {
+    dateState = { key, eff: null, loaded: false };
+    if (key) {
+      currentDates(ids, owner).then((eff) => {
+        if (dateState.key !== key) return;
+        dateState = { key, eff, loaded: true };
+        paintLockButton();
+      });
+    }
+  }
+  // Decide before drawing anything, so the wrong button never flashes up:
+  //   wait    the student's dates haven't been read yet: the bar is invisible (but keeps its room)
+  //   both    nothing to go on (no student found, or the dates couldn't be read): both buttons, so each can say why it can't act
+  //   lock / unlock   the one that makes sense
+  let show;
+  if (!ids || !parsed || (key && !dateState.loaded)) show = "wait";
+  else if (!key || !dateState.eff) show = "both";
+  else show = isLocked(dateState.eff) ? "unlock" : "lock";
+  const visibility = show === "wait" ? "hidden" : "";
+  if (lockBar.style.visibility !== visibility) lockBar.style.visibility = visibility;
+  if (lockButton.hidden !== (show === "unlock")) lockButton.hidden = show === "unlock";
+  if (unlockButton.hidden !== (show === "lock")) unlockButton.hidden = show === "lock";
+}
+// ---- end lock resubmission ----
+
 // ---- autograder: the "Previous submissions" test ----
 //
 // Gradescope embeds every autograder test in the page's data (the React props) as { name, status, ... }.
@@ -1216,7 +1622,7 @@ let seenAt = Date.now();
 
 function render() {
   // Remove lifeless copies of our elements (see `created`); live ones are re-added below.
-  for (const node of document.querySelectorAll(".webrecan-ctl, .webrecan-pop, .webrecan-banner, .webrecan-autograder, #webrecan-panel")) {
+  for (const node of document.querySelectorAll(".webrecan-ctl, .webrecan-pop, .webrecan-banner, .webrecan-lockbar, .webrecan-dialog, .webrecan-autograder, #webrecan-panel")) {
     if (!created.has(node)) node.remove();
   }
   page = currentPage();
@@ -1267,7 +1673,7 @@ function render() {
 
 // React redraws the list, which can drop our buttons, so re-check after changes
 // (ignoring changes we made ourselves).
-const ours = ".webrecan-ctl, .webrecan-pop, .webrecan-banner, .webrecan-autograder, #webrecan-panel";
+const ours = ".webrecan-ctl, .webrecan-pop, .webrecan-banner, .webrecan-lockbar, .webrecan-dialog, .webrecan-autograder, #webrecan-panel";
 let timer;
 new MutationObserver((mutations) => {
   const foreign = mutations.some((m) => !(m.target.nodeType === 1 ? m.target : m.target.parentElement)?.closest(ours));

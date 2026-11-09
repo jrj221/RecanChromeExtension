@@ -135,3 +135,28 @@
 
 /* Used when there's no file view to sit above: floats bottom-left, out of the page's layout. */
 .webrecan-banner.is-floating { position: fixed; left: 16px; bottom: 76px; z-index: 2147483000; margin: 0; max-width: min(560px, calc(100vw - 32px)); max-height: 60vh; overflow: auto; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2); }
+
+/* The "Lock Assignment" and "Unlock Assignment" buttons, side by side under the total points. */
+.webrecan-lockbar { display: flex; flex-flow: row nowrap; align-items: center; gap: 6px; flex: 0 0 100%; width: 100%; box-sizing: border-box; margin: 6px 0 0; white-space: nowrap; }
+.webrecan-lock { display: block; flex: none; width: auto; box-sizing: border-box; margin: 0; padding: 2px 8px; border: 1.5px solid #d93025; border-radius: 6px; background: #fff; color: #a50e0e; font: 600 12px/1.4 system-ui, sans-serif; cursor: pointer; transition: none; }
+.webrecan-lock[hidden] { display: none; }
+.webrecan-lock:hover:not(:disabled) { background: #fce8e6; }
+.webrecan-lock:disabled { border-color: #34a853; color: #137333; cursor: default; }
+.webrecan-unlock { border-color: #1a73e8; color: #174ea6; }
+.webrecan-unlock:hover:not(:disabled) { background: #e8f0fe; }
+.webrecan-unlock:disabled { border-color: #dadce0; color: #80868b; }
+
+/* The date picker "Unlock Assignment" opens. */
+.webrecan-dialog { position: fixed; inset: 0; z-index: 2147483000; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.4); font: 14px/1.45 system-ui, sans-serif; }
+.webrecan-dialog .box { box-sizing: border-box; width: min(380px, calc(100vw - 32px)); padding: 18px 20px; border-radius: 10px; background: #fff; color: #202124; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.3); }
+.webrecan-dialog .title { margin-bottom: 8px; font-size: 17px; font-weight: 700; }
+.webrecan-dialog .current { margin-bottom: 12px; padding: 8px 10px; border-radius: 6px; background: #f1f3f4; font-size: 13px; white-space: pre-line; }
+.webrecan-dialog .about { margin-bottom: 12px; color: #5f6368; font-size: 13px; white-space: pre-line; }
+.webrecan-dialog .field { display: block; margin-bottom: 10px; }
+.webrecan-dialog .field .name { display: block; font-weight: 600; }
+.webrecan-dialog .field .hint { display: block; color: #5f6368; font-size: 12px; }
+.webrecan-dialog .field input { box-sizing: border-box; width: 100%; margin: 3px 0; padding: 5px 8px; border: 1px solid #dadce0; border-radius: 6px; font: inherit; }
+.webrecan-dialog .error { min-height: 1.4em; margin-bottom: 6px; color: #a50e0e; font-size: 13px; font-weight: 600; }
+.webrecan-dialog .buttons { display: flex; justify-content: flex-end; gap: 8px; }
+.webrecan-dialog button { padding: 5px 14px; border: 1.5px solid #dadce0; border-radius: 6px; background: #fff; color: #202124; font: 600 13px/1.4 system-ui, sans-serif; cursor: pointer; }
+.webrecan-dialog button.ok { border-color: #1a73e8; background: #1a73e8; color: #fff; }
