@@ -15,8 +15,9 @@ It also checks the student's Python files for code quality. A small box at the t
 `.py` file in the submission passes. If not, it's a red **warning**; click it to see each check and which files failed it.
 See [Code quality checker](#code-quality-checker). This is separate from recan.
 
-Files whose names begin with `test` (case-insensitive), including their recordings, are hidden from the
-submission file view. Other files keep their normal viewing and download controls, and their recordings
+Files whose names begin with `test` (case-insensitive), or have `input` or `output` in them, including their
+recordings, are hidden from the submission file view (you can change what's hidden, and how the rest is ordered, in the
+[toolbar popup](#settings)). Other files keep their normal viewing and download controls, and their recordings
 keep the **Run recan** and **?** buttons. The filter also applies when moving between students.
 
 This repo contains only the extension. It does not contain recan itself. See the `Install` section for more info.
@@ -29,6 +30,7 @@ This repo contains only the extension. It does not contain recan itself. See the
   - [Optional: instructions](#optional-instructions)
   - [Optional: test output](#optional-test-output)
   - [Testing with a local copy of recan](#testing-with-a-local-copy-of-recan)
+- [Settings](#settings)
 - [Code quality checker](#code-quality-checker)
 - [Testing](#testing)
 - [Layout](#layout)
@@ -166,6 +168,24 @@ and `upstream/` for the release. The tests use whichever one it points at.
 
 <br>
 
+## Settings
+
+Click the WebRecan icon in Chrome's toolbar (pin it from the puzzle-piece menu if you don't see it). Each choice is saved
+as soon as you make it and applies to open Gradescope pages right away. They are kept with Chrome's extension storage,
+so they follow your Chrome profile to another computer when sync is on.
+
+- **Hidden files.** Turn each rule on or off: names starting with `test`, names with `input` or `output` in them, and
+  the instructions recording. You can also list your own words (separated by commas, capitals don't matter); any file
+  whose name contains one is hidden. A hidden file isn't shown, analyzed, flagged or checked for code quality, so
+  un-hiding a file also gets it checked.
+- **File order.** Recordings first, `.py` files first, or Gradescope's own order. Files are alphabetical within each
+  group. This only changes how the list is drawn, not Gradescope's page.
+- **Behavior.** Collapse the file Gradescope opens by default (once per submission, so you can still open it yourself).
+
+The rules and defaults are in `src/settings.js`; the popup is `src/popup.html`, `popup.js` and `popup.css`.
+
+<br>
+
 ## Code quality checker
 
 `checker/quality.py` scans the `.py` files in a submission. On a Gradescope submission page (the grading page, or the assignment's submission page with `?view=files`) the extension runs it on
@@ -223,7 +243,7 @@ and checks the output is **identical** for both things the extension uses: the p
 (`recan summary --json ... --exclude .html`). `RECAN` is your installed `recan` command (it needs recan's Python
 dependencies). To include starter code, also set `STARTER_DIR=<folder of the assignment's starter .py files>`.
 `node test/flags.mjs [folder of .gz recordings]` checks how recan's analysis becomes the flags and the pasted-code snippets,
-including rebuilding the whole file at a paste (with a folder, it also compares them with recan's real output). `node test/tabreturn.mjs` checks the return-to-Gradescope behavior with stand-ins for Chrome's tab APIs. `node test/previous-submissions.mjs` checks how the Previous Submission(s) test is read. `node test/instructions.mjs` checks that a paste from the instructions is approved only when the instructions are passed in, and `node test/test-output.mjs` does the same for the expected test output. `node test/cross-file.mjs` checks that code moved between two files' recordings is an internal paste only when both are analyzed together. Run the parity test after every upstream update. `python3 test/gen_synthetic.py <folder>` writes extra edge-case recordings.
+including rebuilding the whole file at a paste (with a folder, it also compares them with recan's real output). `node test/tabreturn.mjs` checks the return-to-Gradescope behavior with stand-ins for Chrome's tab APIs. `node test/previous-submissions.mjs` checks how the Previous Submission(s) test is read. `node test/instructions.mjs` checks that a paste from the instructions is approved only when the instructions are passed in, and `node test/test-output.mjs` does the same for the expected test output. `node test/cross-file.mjs` checks that code moved between two files' recordings is an internal paste only when both are analyzed together. `node test/settings.mjs` checks the hide and sort rules and `node test/popup.mjs` checks the toolbar popup. Run the parity test after every upstream update. `python3 test/gen_synthetic.py <folder>` writes extra edge-case recordings.
 
 > [!WARNING]
 > Keep real recordings out of this repo; they're student work (`*.gz` is git-ignored).
@@ -250,10 +270,12 @@ src/                 content.js + content.css   the buttons, red flag, "?" popov
                      flags.js                   turns recan's analysis into the red-flag checks
                      starter.js                 optional starter-code lookup and matching by recording name
                      quality.js                 runs checker/quality.py in the Python session
+                     settings.js                the settings, their defaults, and the hide/sort rules (page script + popup)
+                     popup.*                    the toolbar popup where the settings are changed
                      viewer.*, sandbox.*        the tab that shows the recan player
 shims/               pydivsufsort.py stand-in
 scripts/             setup.mjs and its steps; fetch-starter-code.mjs, fetch-instructions.mjs, fetch-test-output.mjs, use-local-recan.mjs (optional)
-test/                parity.mjs, flags.mjs, gen_synthetic.py, quality_test.py, quality-parity.mjs
+test/                parity.mjs, flags.mjs, gen_synthetic.py, quality_test.py, quality-parity.mjs, settings.mjs, popup.mjs
 vendor/  upstream/  recan-files.json   downloaded or generated by setup (git-ignored)
 starter-code-source/  starter-code.json   from the optional starter-code script (git-ignored)
 instructions-source/  instructions.json   from the optional instructions script (git-ignored)
@@ -291,8 +313,8 @@ When the recording has any of these (each recording is checked on its own):
 
 Recordings whose names start with `test` (like `test_words.recording.jsonl.gz`), or that have `input` or `output`
 anywhere in the name (like `words_output.recording.jsonl.gz`), are hidden along with the other test files, and so are
-`.py` and other files named that way. They are never analyzed or flagged and don't appear in the fallback recordings
-panel.
+`.py` and other files named that way (these rules, and any words of your own, can be changed in the
+[toolbar popup](#settings)). They are never analyzed or flagged and don't appear in the fallback recordings panel.
 
 Everything is worked out by recan itself (`recan summary --json`); the extension only applies the 2 minute rule and
 counts the results. The 2 minutes is `MIN_ACTIVE_SECONDS` in `src/flags.js` (and `src/content.js`, which can't share

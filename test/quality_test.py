@@ -562,6 +562,12 @@ class IgnoredFiles(unittest.TestCase):
         result = check_files([{"name": "test_words.py", "text": bad}, {"name": "words.py", "text": bad}])
         self.assertEqual([r["name"] for r in result], ["words.py"])
 
+    def test_the_caller_can_choose_to_check_every_file_it_passes(self):
+        bad = "while a:\n    while b:\n        pass\n"
+        files = [{"name": "test_words.py", "text": bad}, {"name": "words_output.py", "text": bad}, {"name": "words.py", "text": bad}]
+        result = check_files(files, skip_ignored=False)
+        self.assertEqual([r["name"] for r in result], ["test_words.py", "words_output.py", "words.py"])
+
     def test_scanning_a_folder_skips_them_but_a_named_file_is_checked(self):
         bad = "while a:\n    while b:\n        pass\n"
         with tempfile.TemporaryDirectory() as folder:

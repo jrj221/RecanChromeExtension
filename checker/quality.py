@@ -460,16 +460,17 @@ def count_functions(source: str) -> int | None:
     return total
 
 
-def check_files(files: list[dict]) -> list[dict]:
+def check_files(files: list[dict], skip_ignored: bool = True) -> list[dict]:
     """Check several files. `files` is [{"name": ..., "text": ...}]; the result is JSON-friendly.
 
-    Ignored files (see is_ignored) are left out of the result entirely.
+    Ignored files (see is_ignored) are left out of the result entirely, unless `skip_ignored` is False: the
+    extension decides for itself which files to hide (a setting), so it passes only the files it wants checked.
     """
     return [
         {"name": f["name"], "issues": [asdict(issue) for issue in check_source(f["text"])],
          "functions": count_functions(f["text"])}
         for f in files
-        if not is_ignored(f["name"])
+        if not (skip_ignored and is_ignored(f["name"]))
     ]
 
 
