@@ -40,7 +40,6 @@ const grade = (files, extra = {}) => ({ assignment: { group_submission: false },
 assert.deepEqual(findOwner(root(grade([{ user_id: 55 }, { user_id: 55 }]))), { userId: 55, name: "Ada Lovelace" }, "every file names the same student");
 assert.equal(findOwner(root(grade([{ user_id: 55 }, { user_id: 56 }]))), null, "files from different users: refuse");
 assert.equal(findOwner(root(grade([]))), null, "no files, no id");
-assert.equal(findOwner(root(grade([{ user_id: 55 }], { assignment: { group_submission: true } }))), null, "group submissions: refuse");
 assert.equal(findOwner(root(grade([{ user_id: 55 }], { evaluation: { user_id: 999 } }))).userId, 55, "the grader's id (evaluation.user_id) is never used");
 console.log("ok   finding the student on the grade page");
 
@@ -103,3 +102,9 @@ assert.match(describeDates(effectiveDates(data, 7048746)), /Current late due dat
 assert.equal(describeDates(null), "Couldn't read their current dates.");
 assert.equal(isoNoMillis(fromWallTime("2026-11-07T23:59:30")), "2026-11-08T06:59:00Z", "seconds are accepted");
 console.log("ok   lock or unlock: current dates read from the Extensions page");
+
+// The page's group_submission field only says groups are allowed; submissions here are individual, so it's ignored.
+const flagged = (extra = {}) => ({ assignment: { group_submission: true }, submission: { assignment_submission_id: 443327677, owner_names: "Ada Lovelace" }, files: [{ user_id: 4146090 }, { user_id: 4146090 }], ...extra });
+assert.deepEqual(findOwner(root(flagged())), { userId: 4146090, name: "Ada Lovelace" }, "group_submission: true doesn't stop it");
+assert.equal(findOwner(root(flagged({ files: [{ user_id: 1 }, { user_id: 2 }] }))), null, "files from different users: still refused");
+console.log("ok   the group_submission field is ignored");

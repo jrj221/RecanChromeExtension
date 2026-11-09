@@ -1042,8 +1042,8 @@ function findArray(node, key, depth = 0) {
 }
 
 /**
- * The student this submission belongs to, { userId, name }, or null when it can't be told (or it's a group
- * submission with several owners). The submission page lists `ownerships`; the grade page has no such list, but
+ * The student this submission belongs to, { userId, name }, or null when it can't be told (no files, or files from
+ * several users, or several owners). The submission page lists `ownerships`; the grade page has no such list, but
  * every file carries the student's `user_id` and the submission has `owner_names`.
  */
 function findOwner(root) {
@@ -1056,11 +1056,12 @@ function findOwner(root) {
     } catch {
       continue;
     }
-    if (props?.assignment?.group_submission === true) continue;
     let userId = null;
     const owners = (findArray(props, "ownerships") || []).filter((o) => o && o.active !== false && Number.isInteger(o.user_id));
     if (owners.length === 1) userId = owners[0].user_id;
     else if (!owners.length) {
+      // No members list (the grade page): every file carries the student's user_id. (The page's `group_submission` field
+      // only says whether the assignment allows groups; submissions here are individual, so it is ignored.)
       const ids = new Set((findArray(props, "files") || []).map((f) => f?.user_id).filter(Number.isInteger));
       if (ids.size === 1) userId = [...ids][0];
     }
@@ -1164,11 +1165,16 @@ function loadExtensionsPage(ids) {
   return promise;
 }
 
+let datesError = ""; // why the last attempt to read the student's dates failed (shown in the buttons' tooltip)
+
 /** This student's current dates, or null if they couldn't be read. */
 async function currentDates(ids, owner) {
   try {
-    return effectiveDates(await loadExtensionsPage(ids), owner.userId);
+    const eff = effectiveDates(await loadExtensionsPage(ids), owner.userId);
+    datesError = "";
+    return eff;
   } catch (e) {
+    datesError = String(e?.message || e);
     console.warn("[webrecan] couldn't read the student's dates", e);
     return null;
   }
@@ -1367,6 +1373,13 @@ function paintLockButton() {
   if (!ids || !parsed || (key && !dateState.loaded)) show = "wait";
   else if (!key || !dateState.eff) show = "both";
   else show = isLocked(dateState.eff) ? "unlock" : "lock";
+  // When both show, say why in the tooltip (and the console has the details).
+  const why = show !== "both" ? "" : !ids ? "couldn't find the assignment's id" : !parsed || !key ? "couldn't tell which single student this is" : `couldn't read their dates${datesError ? `: ${datesError}` : ""}`;
+  const note = why ? `\n\n(Both buttons are showing because WebRecan ${why}. The console has details.)` : "";
+  const lockTitle = `Give this student an extension with a due date that has passed, so they can't submit again.${note}`;
+  const unlockTitle = `Let this student submit again: pick a new due date for their extension.${note}`;
+  if (lockButton.title !== lockTitle) lockButton.title = lockTitle;
+  if (unlockButton.title !== unlockTitle) unlockButton.title = unlockTitle;
   const visibility = show === "wait" ? "hidden" : "";
   if (lockBar.style.visibility !== visibility) lockBar.style.visibility = visibility;
   if (lockButton.hidden !== (show === "unlock")) lockButton.hidden = show === "unlock";
