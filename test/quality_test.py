@@ -483,6 +483,76 @@ class NestedWhile(unittest.TestCase):
         self.assertEqual(rules(source), [("nested-while", 3)])
 
 
+class NestedWith(unittest.TestCase):
+    def test_the_example_from_the_assignment(self):
+        source = (
+            "def add_bullets(inputtext, outputtext, bullets):\n"
+            "    with open(inputtext) as file:\n"
+            "        lines = file.readlines()\n"
+            "        for line in lines:\n"
+            "            with open(outputtext, 'a') as output:\n"
+            "                output.writelines(f'{bullets} {line}')\n"
+        )
+        found = check_source(source)
+        self.assertEqual([(i.rule, i.line) for i in found], [("nested-with", 5)])
+        self.assertIn("line 2", found[0].message)
+
+    def test_with_directly_inside_with(self):
+        found = check_source("with a() as x:\n    with b() as y:\n        pass\n")
+        self.assertEqual([(i.rule, i.line) for i in found], [("nested-with", 2)])
+
+    def test_through_if_for_while_and_try(self):
+        source = "with a() as x:\n    if x:\n        for i in y:\n            while z:\n                try:\n                    with b() as w:\n                        pass\n                except E:\n                    pass\n"
+        self.assertEqual(rules(source), [("nested-with", 6)])
+
+    def test_sequential_withs_are_fine(self):
+        self.assertEqual(rules("with a() as x:\n    pass\nwith b() as y:\n    pass\n"), [])
+
+    def test_several_items_in_one_with_are_not_nesting(self):
+        self.assertEqual(rules("with a() as x, b() as y:\n    pass\n"), [])
+
+    def test_a_with_after_the_first_ends_is_fine(self):
+        self.assertEqual(rules("with a() as x:\n    pass\nif q:\n    with b() as y:\n        pass\n"), [])
+
+    def test_a_with_inside_a_function_defined_in_a_with_starts_fresh(self):
+        source = "with a() as x:\n    def f():\n        with b() as y:\n            pass\n"
+        self.assertEqual(rules(source), [])
+
+    def test_a_with_in_a_method_of_a_class_defined_in_a_with_starts_fresh(self):
+        source = "with a() as x:\n    class C:\n        def m(self):\n            with b() as y:\n                pass\n"
+        self.assertEqual(rules(source), [])
+
+    def test_async_with(self):
+        source = "async def f():\n    async with a() as x:\n        async with b() as y:\n            pass\n"
+        self.assertEqual(rules(source), [("nested-with", 3)])
+
+    def test_mixed_with_and_async_with(self):
+        source = "async def f():\n    with a() as x:\n        async with b() as y:\n            pass\n"
+        self.assertEqual(rules(source), [("nested-with", 3)])
+
+    def test_three_deep_reports_each_inner_with(self):
+        source = "with a() as x:\n    with b() as y:\n        with c() as z:\n            pass\n"
+        found = check_source(source)
+        self.assertEqual([(i.line, i.message[-6:]) for i in found], [(2, "line 1"), (3, "line 2")])
+
+    def test_a_loop_inside_a_with_is_fine(self):
+        self.assertEqual(rules("with a() as x:\n    for line in x:\n        print(line)\n"), [])
+
+    def test_a_with_inside_a_loop_is_fine(self):
+        self.assertEqual(rules("for name in names:\n    with open(name) as f:\n        print(f.read())\n"), [])
+
+    def test_a_with_in_an_except_handler_of_a_with_counts(self):
+        source = "with a() as x:\n    try:\n        pass\n    except E:\n        with b() as y:\n            pass\n"
+        self.assertEqual(rules(source), [("nested-with", 5)])
+
+    def test_a_nested_with_fails_its_check_on_the_first_one(self):
+        results = check_files([{"name": "a.py", "text": "with a() as x:\n    with b() as y:\n        pass\n"}])
+        found = row(summarize(results), "nested-with")
+        self.assertTrue(found["failed"])
+        self.assertEqual(found["files"], ["a.py"])
+        self.assertEqual(found["label"], "No nested with statements")
+
+
 class FunctionLength(unittest.TestCase):
     def test_limit_is_documented_as_20(self):
         self.assertEqual(MAX_FUNCTION_LINES, 20)
@@ -617,8 +687,8 @@ class Summary(unittest.TestCase):
 
     def test_everything_passes_when_nothing_was_found(self):
         rows = summarize([result("a.py"), result("b.py")])
-        self.assertEqual([r["failed"] for r in rows], [False] * 5)
-        self.assertEqual([r["rule"] for r in rows], ["indentation", "blank-lines", "nested-while", "function-length", "duplication"])
+        self.assertEqual([r["failed"] for r in rows], [False] * 6)
+        self.assertEqual([r["rule"] for r in rows], ["indentation", "blank-lines", "nested-while", "nested-with", "function-length", "duplication"])
 
     def test_labels(self):
         labels = {r["rule"]: r["label"] for r in summarize([])}

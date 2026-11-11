@@ -21,6 +21,10 @@ The checks, and the judgment calls where the rules leave room for interpretation
                    not checked.
   nested-while     A `while` loop may not contain another `while` loop (at any depth, through
                    if/for/try). A nested function or class starts fresh.
+  nested-with      A `with` statement may not contain another `with` statement (at any depth,
+                   through if/for/while/try): split the inner one into its own function. Several
+                   items in one statement (`with a() as x, b() as y:`) are not nesting. A nested
+                   function or class starts fresh.
   function-length  Every function must be shorter than MAX_FUNCTION_LINES. The length is counted
                    in lines of code, from the `def` line to the end of the function. Blank lines,
                    comment lines, the docstring and other bare strings
@@ -35,7 +39,7 @@ The checks, and the judgment calls where the rules leave room for interpretation
 
 Spacing slips are common and minor, so indentation and blank lines only FAIL when they happen
 more than twice across ALL the files together (see ALLOWED_VIOLATIONS and summarize). Nested while
-loops and long functions fail on the first one.
+loops, nested with statements and long functions fail on the first one.
 
 A statement that wraps onto more lines (a long print(...), a list, a backslash continuation) may
 indent its continuation lines any way it likes; only new blocks are held to the 4-space rule.
@@ -78,6 +82,7 @@ CHECKS = [
     ("indentation", "Indentation"),
     ("blank-lines", "2 blank lines between functions"),
     ("nested-while", "No nested while loops"),
+    ("nested-with", "No nested with statements"),
     ("function-length", f"Functions longer than {MAX_FUNCTION_LINES} lines"),
     ("duplication", "Duplicated code"),
 ]
@@ -231,6 +236,32 @@ def _check_nested_while(tree: ast.Module) -> list[Issue]:
     def visit_statement(statement: ast.AST, outer_while: int | None) -> None:
         # A statement can itself be a while loop, so wrap it to reuse `visit`.
         visit(ast.Module(body=[statement], type_ignores=[]), outer_while)
+
+    visit(tree, None)
+    return issues
+
+
+# ---- nested with statements ----
+
+def _check_nested_with(tree: ast.Module) -> list[Issue]:
+    """A `with` inside another `with`'s body, at any depth, is poor decomposition: the inner one belongs in a function."""
+    issues = []
+
+    def visit(node: ast.AST, outer_with: int | None) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+                visit(child, None)  # a new scope starts fresh
+            elif isinstance(child, (ast.With, ast.AsyncWith)):
+                if outer_with is not None:
+                    issues.append(Issue("nested-with", child.lineno, f"with statement inside the with statement on line {outer_with}"))
+                for statement in child.body:
+                    visit_statement(statement, child.lineno)
+            else:
+                visit(child, outer_with)
+
+    def visit_statement(statement: ast.AST, outer_with: int | None) -> None:
+        # A statement can itself be a with statement, so wrap it to reuse `visit`.
+        visit(ast.Module(body=[statement], type_ignores=[]), outer_with)
 
     visit(tree, None)
     return issues
@@ -437,6 +468,7 @@ def check_source(source: str) -> list[Issue]:
     lines = source.splitlines()
     issues += _check_blank_lines(tree, lines)
     issues += _check_nested_while(tree)
+    issues += _check_nested_with(tree)
     issues += _check_function_length(tree, lines)
     issues += _check_duplication(tree, source)
     return sorted(issues, key=lambda i: (i.line, i.rule))
