@@ -5,7 +5,7 @@ import { loadPyodide } from "../vendor/pyodide/pyodide.mjs";
 import { evaluateSession, evaluateSummaryJson } from "./flags.js";
 import { checkQuality, mountChecker, summarizeQuality } from "./quality.js";
 import { TA_OPTIONS, generateHtml, generateSummary, mountRecan } from "./runner.js";
-import { loadIndex, loadInstructions, loadStarterFiles, loadTestOutput } from "./starter.js";
+import { loadDefaultApprovedPastes, loadIndex, loadInstructions, loadStarterFiles, loadTestOutput } from "./starter.js";
 
 const readBytes = async (path) => {
   const res = await fetch(chrome.runtime.getURL(path));
@@ -65,12 +65,13 @@ async function starterFiles(folderId) {
   return starterCache.get(folderId);
 }
 
-const approvedCache = new Map(); // folder id -> [text]: the instructions and the expected test output
+const approvedCache = new Map(); // folder id -> [text]: the default pastes, the instructions and the expected test output
 async function approvedPastes(folderId) {
-  if (!folderId) return [];
+  const defaults = await loadDefaultApprovedPastes();
+  if (!folderId) return defaults;
   if (!approvedCache.has(folderId)) {
     const [instructions, testOutput] = await Promise.all([loadInstructions(folderId), loadTestOutput(folderId)]);
-    approvedCache.set(folderId, [instructions, ...testOutput].filter((text) => text != null));
+    approvedCache.set(folderId, [...defaults, instructions, ...testOutput].filter((text) => text != null));
   }
   return approvedCache.get(folderId);
 }

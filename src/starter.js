@@ -83,6 +83,34 @@ export async function loadInstructions(folderId) {
   return res.text();
 }
 
+// ---- default approved pastes (always used) ----
+// default-approved-pastes.txt, in the extension's root, lists pastes that are always approved, for every
+// assignment, with or without the course-content scripts. It lives here, not in recan, because recan is
+// used by other courses. Entries are separated by a line containing only `---`, and each entry is its own
+// approved source, so a paste has to fall within one entry. Don't put comments in the file: they would be
+// approved text too.
+
+/** The entries of default-approved-pastes.txt (blocks separated by a `---` line), without blank ones. */
+export function parseDefaultApprovedPastes(text) {
+  return String(text)
+    .replace(/\r\n?/g, "\n")
+    .split(/^---[ \t]*$/m)
+    .map((entry) => entry.replace(/^\n+|\n+$/g, ""))
+    .filter((entry) => entry.trim());
+}
+
+let defaultApprovedPromise;
+export function loadDefaultApprovedPastes() {
+  return (defaultApprovedPromise ??= (async () => {
+    try {
+      const res = await fetch(chrome.runtime.getURL("default-approved-pastes.txt"));
+      return res.ok ? parseDefaultApprovedPastes(await res.text()) : [];
+    } catch {
+      return [];
+    }
+  })());
+}
+
 // ---- test output (optional, separate from the starter code) ----
 // Only does anything if scripts/fetch-test-output.mjs has been run, which creates test-output.json.
 
