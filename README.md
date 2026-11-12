@@ -212,7 +212,7 @@ every Python file listed there and shows one small box at the top of the page:
 
 Checks are judged across **all the files together**, not file by file. Indentation and blank-line slips are common and
 minor, so each of those two only fails once it has happened **more than twice in total** (three or more, however they're
-spread over the files). Nested while loops, nested `with` statements and long functions fail on the first one.
+spread over the files). Nested while loops, nested `with` statements, `sys.argv` outside the main block and long functions fail on the first one.
 
 | Check | What passes |
 |---|---|
@@ -220,6 +220,7 @@ spread over the files). Nested while loops, nested `with` statements and long fu
 | **2 blank lines between functions** | The last import at the top and the first function, two functions that follow each other, or a function followed by the `if __name__ == "__main__":` block, have exactly 2 blank lines between them (not more, not fewer). Comments and decorators directly above a function (or that `if`) count as part of it. Methods inside classes and nested functions aren't checked. **Fails only if it happens more than twice across all the files together,** except that no blank line at all, or 5 or more, fails it right away. |
 | **No nested while loops** | No `while` loop contains another `while` loop, at any depth. A function defined inside a loop starts fresh. |
 | **No nested with statements** | No `with` statement contains another `with` statement, at any depth (through `if`, `for`, `while` or `try`): the inner one belongs in its own function. Several items in one statement (`with a() as x, b() as y:`) aren't nesting. A function or class defined inside a `with` starts fresh. **Fails on the first one.** |
+| **sys.argv only in the main block** | `sys.argv` is used only inside the `if __name__ == "__main__":` block, never in a function (or elsewhere at the top of the file): read the arguments there and pass them to the functions that need them. Also catches `from sys import argv` and `import sys as s`; a parameter named `argv` is the function's own and is fine. **Fails on the first one.** |
 | **Duplicated code** | Within a file: 3+ identical lines that appear twice, or 4+ lines that appear twice and differ only in string contents, numbers and variable names (so they could be one function with parameters). Method calls and called functions have to match exactly. Blank lines, comments and lines like `else:` or `return` don't count. Fails on the first one, and the box shows both copies side by side in a dropdown. The limits are constants at the top of `checker/quality.py`. |
 | **Functions longer than 20 lines** | Every function is **shorter than 20 lines**, so a function of 20 lines or more fails the check. |
 

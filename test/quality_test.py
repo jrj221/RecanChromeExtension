@@ -553,6 +553,84 @@ class NestedWith(unittest.TestCase):
         self.assertEqual(found["label"], "No nested with statements")
 
 
+class ArgvOutsideMain(unittest.TestCase):
+    GOOD = "import sys\n\n\ndef main(command):\n    print(command)\n\n\nif __name__ == '__main__':\n    main(sys.argv[1])\n"
+
+    def test_argv_in_the_main_block_is_fine(self):
+        self.assertEqual(rules(self.GOOD), [])
+
+    def test_argv_in_a_function_is_flagged(self):
+        source = "import sys\n\n\ndef bad():\n    return sys.argv[1]\n\n\nif __name__ == '__main__':\n    bad()\n"
+        found = check_source(source)
+        self.assertEqual([(i.rule, i.line) for i in found], [("argv-outside-main", 5)])
+        self.assertIn("__main__", found[0].message)
+
+    def test_each_use_is_reported(self):
+        source = "import sys\n\n\ndef bad():\n    a = sys.argv[1]\n    return a + sys.argv[2]\n"
+        self.assertEqual(rules(source), [("argv-outside-main", 5), ("argv-outside-main", 6)])
+
+    def test_argv_at_the_top_of_the_file_outside_the_main_block_is_flagged(self):
+        self.assertEqual(rules("import sys\nname = sys.argv[1]\nprint(name)\n"), [("argv-outside-main", 2)])
+
+    def test_argv_in_the_else_of_the_main_block_is_flagged(self):
+        source = "import sys\nif __name__ == '__main__':\n    pass\nelse:\n    x = sys.argv\n"
+        self.assertEqual(rules(source), [("argv-outside-main", 5)])
+
+    def test_the_main_block_can_be_written_either_way_round(self):
+        self.assertEqual(rules("import sys\nif '__main__' == __name__:\n    x = sys.argv\n"), [])
+
+    def test_everything_under_the_main_block_counts_as_inside_it(self):
+        source = "import sys\nif __name__ == '__main__':\n    if len(sys.argv) > 1:\n        for a in sys.argv[1:]:\n            print(a)\n"
+        self.assertEqual(rules(source), [])
+
+    def test_a_default_argument_is_outside_the_main_block(self):
+        self.assertEqual(rules("import sys\n\n\ndef f(args=sys.argv):\n    pass\n"), [("argv-outside-main", 4)])
+
+    def test_a_method_is_flagged(self):
+        source = "import sys\n\n\nclass C:\n    def m(self):\n        return sys.argv\n"
+        self.assertEqual(rules(source), [("argv-outside-main", 6)])
+
+    def test_a_nested_function_is_flagged(self):
+        source = "import sys\n\n\ndef outer():\n    def inner():\n        return sys.argv\n    return inner\n"
+        self.assertEqual(rules(source), [("argv-outside-main", 6)])
+
+    def test_a_lambda_is_flagged(self):
+        self.assertEqual(rules("import sys\nf = lambda: sys.argv\n"), [("argv-outside-main", 2)])
+
+    def test_import_sys_as_another_name(self):
+        source = "import sys as system\n\n\ndef bad():\n    return system.argv\n"
+        self.assertEqual(rules(source), [("argv-outside-main", 5)])
+
+    def test_from_sys_import_argv(self):
+        source = "from sys import argv\n\n\ndef bad():\n    return argv[1]\n\n\nif __name__ == '__main__':\n    print(argv[1])\n"
+        self.assertEqual(rules(source), [("argv-outside-main", 5)])
+
+    def test_from_sys_import_argv_under_another_name(self):
+        source = "from sys import argv as args\n\n\ndef bad():\n    return args\n"
+        self.assertEqual(rules(source), [("argv-outside-main", 5)])
+
+    def test_a_parameter_called_argv_is_not_sys_argv(self):
+        source = "from sys import argv\n\n\ndef main(argv):\n    return argv[1]\n\n\nif __name__ == '__main__':\n    main(argv)\n"
+        self.assertEqual(rules(source), [])
+
+    def test_other_uses_of_sys_are_fine(self):
+        source = "import sys\n\n\ndef stop():\n    sys.exit(1)\n    print(sys.version)\n"
+        self.assertEqual(rules(source), [])
+
+    def test_other_things_called_argv_are_fine(self):
+        self.assertEqual(rules("import sys\n\n\ndef f(options):\n    return options.argv\n"), [])
+
+    def test_a_file_that_never_imports_sys_has_nothing_to_flag(self):
+        self.assertEqual(rules("def f(x):\n    return x.argv\n"), [])
+
+    def test_it_fails_its_check_on_the_first_one(self):
+        results = check_files([{"name": "a.py", "text": "import sys\n\n\ndef bad():\n    return sys.argv\n"}, {"name": "b.py", "text": self.GOOD}])
+        found = row(summarize(results), "argv-outside-main")
+        self.assertTrue(found["failed"])
+        self.assertEqual(found["files"], ["a.py"])
+        self.assertEqual(found["label"], "sys.argv only in the main block")
+
+
 class FunctionLength(unittest.TestCase):
     def test_limit_is_documented_as_20(self):
         self.assertEqual(MAX_FUNCTION_LINES, 20)
@@ -687,8 +765,8 @@ class Summary(unittest.TestCase):
 
     def test_everything_passes_when_nothing_was_found(self):
         rows = summarize([result("a.py"), result("b.py")])
-        self.assertEqual([r["failed"] for r in rows], [False] * 6)
-        self.assertEqual([r["rule"] for r in rows], ["indentation", "blank-lines", "nested-while", "nested-with", "function-length", "duplication"])
+        self.assertEqual([r["failed"] for r in rows], [False] * 7)
+        self.assertEqual([r["rule"] for r in rows], ["indentation", "blank-lines", "nested-while", "nested-with", "argv-outside-main", "function-length", "duplication"])
 
     def test_labels(self):
         labels = {r["rule"]: r["label"] for r in summarize([])}

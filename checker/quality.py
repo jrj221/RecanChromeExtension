@@ -25,6 +25,10 @@ The checks, and the judgment calls where the rules leave room for interpretation
                    through if/for/while/try): split the inner one into its own function. Several
                    items in one statement (`with a() as x, b() as y:`) are not nesting. A nested
                    function or class starts fresh.
+  argv-outside-main  `sys.argv` may only be used inside the `if __name__ == "__main__":` block, not in
+                   any function and not elsewhere at the top of the file: read the arguments there
+                   and pass them to the functions that need them. Also catches `from sys import argv`
+                   (and `import sys as s`). A parameter named `argv` is not the sys one.
   function-length  Every function must be shorter than MAX_FUNCTION_LINES. The length is counted
                    in lines of code, from the `def` line to the end of the function. Blank lines,
                    comment lines, the docstring and other bare strings
@@ -39,7 +43,7 @@ The checks, and the judgment calls where the rules leave room for interpretation
 
 Spacing slips are common and minor, so indentation and blank lines only FAIL when they happen
 more than twice across ALL the files together (see ALLOWED_VIOLATIONS and summarize). Nested while
-loops, nested with statements and long functions fail on the first one.
+loops, nested with statements, sys.argv outside the main block and long functions fail on the first one.
 
 A statement that wraps onto more lines (a long print(...), a list, a backslash continuation) may
 indent its continuation lines any way it likes; only new blocks are held to the 4-space rule.
@@ -83,6 +87,7 @@ CHECKS = [
     ("blank-lines", "2 blank lines between functions"),
     ("nested-while", "No nested while loops"),
     ("nested-with", "No nested with statements"),
+    ("argv-outside-main", "sys.argv only in the main block"),
     ("function-length", f"Functions longer than {MAX_FUNCTION_LINES} lines"),
     ("duplication", "Duplicated code"),
 ]
@@ -265,6 +270,47 @@ def _check_nested_with(tree: ast.Module) -> list[Issue]:
 
     visit(tree, None)
     return issues
+
+
+# ---- sys.argv outside the main block ----
+
+def _check_argv_outside_main(tree: ast.Module) -> list[Issue]:
+    """Every use of sys.argv that isn't inside the top-level `if __name__ == "__main__":` block."""
+    sys_names: set[str] = set()  # names the sys module is bound to: `import sys`, `import sys as s`
+    argv_names: set[str] = set()  # names bound to sys.argv itself: `from sys import argv [as x]`
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            sys_names.update(alias.asname or alias.name for alias in node.names if alias.name == "sys")
+        elif isinstance(node, ast.ImportFrom) and node.module == "sys" and not node.level:
+            argv_names.update(alias.asname or alias.name for alias in node.names if alias.name == "argv")
+    if not sys_names and not argv_names:
+        return []
+
+    issues = []
+
+    def report(node: ast.AST) -> None:
+        issues.append(Issue("argv-outside-main", node.lineno, "sys.argv is used outside the `if __name__ == \"__main__\":` block; read it there and pass it to the function"))
+
+    def visit(node: ast.AST, shadowed: frozenset[str]) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.Attribute) and child.attr == "argv" and isinstance(child.value, ast.Name) and child.value.id in sys_names:
+                report(child)
+            elif isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load) and child.id in argv_names and child.id not in shadowed:
+                report(child)
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                # A parameter called argv is the function's own, not sys.argv.
+                visit(child, shadowed | {a.arg for a in ast.walk(child.args) if isinstance(a, ast.arg)})
+            else:
+                visit(child, shadowed)
+
+    for statement in tree.body:
+        if _is_main_block(statement):
+            visit(statement.test, frozenset())  # the block's body is where sys.argv belongs; its else clause is not
+            for other in statement.orelse:
+                visit(ast.Module(body=[other], type_ignores=[]), frozenset())
+        else:
+            visit(ast.Module(body=[statement], type_ignores=[]), frozenset())
+    return sorted(issues, key=lambda i: i.line)
 
 
 # ---- function length ----
@@ -469,6 +515,7 @@ def check_source(source: str) -> list[Issue]:
     issues += _check_blank_lines(tree, lines)
     issues += _check_nested_while(tree)
     issues += _check_nested_with(tree)
+    issues += _check_argv_outside_main(tree)
     issues += _check_function_length(tree, lines)
     issues += _check_duplication(tree, source)
     return sorted(issues, key=lambda i: (i.line, i.rule))
