@@ -193,6 +193,15 @@ so they follow your Chrome profile to another computer when sync is on.
 - **File order.** Recordings first, `.py` files first, or Gradescope's own order. Files are alphabetical within each
   group. This only changes how the list is drawn, not Gradescope's page.
 - **Behavior.** Collapse the file Gradescope opens by default (once per submission, so you can still open it yourself).
+- **Extension date picker.** On a course's Extensions page, clicking the due date or late due date field of the Add an
+  Extension form opens WebRecan's own calendar and time picker (Chrome's can't be changed by an extension). It starts at
+  11:59 PM on the field's date, with the calendar on the left and the time on the right: hour, minute and AM/PM fields that
+  each open a scrollable list above them when clicked, and a **Set to 11:59 PM** button (shown only when the time isn't
+  already that). **Set** writes the date and time into the field, and
+  Gradescope's own **Add Extension** button sends it. It also opens when you tick **Due date** or **Late due date**
+  (Gradescope opens the browser's picker itself then; `src/main-world-picker.js`, which runs in the page's own world,
+  hands that over). The release date and the edit form keep the browser's picker. Turn it off with the switch in the
+  popup.
 
 The rules and defaults are in `src/settings.js`; the popup is `src/popup.html`, `popup.js` and `popup.css`.
 
@@ -257,7 +266,7 @@ and checks the output is **identical** for both things the extension uses: the p
 (`recan summary --json ... --exclude .html`). `RECAN` is your installed `recan` command (it needs recan's Python
 dependencies). To include starter code, also set `STARTER_DIR=<folder of the assignment's starter .py files>`.
 `node test/flags.mjs [folder of .gz recordings]` checks how recan's analysis becomes the flags and the pasted-code snippets,
-including rebuilding the whole file at a paste (with a folder, it also compares them with recan's real output). `node test/tabreturn.mjs` checks the return-to-Gradescope behavior with stand-ins for Chrome's tab APIs. `node test/previous-submissions.mjs` checks how the Previous Submission(s) test is read. `node test/instructions.mjs` checks that a paste from the instructions is approved only when the instructions are passed in, and `node test/test-output.mjs` does the same for the expected test output. `node test/cross-file.mjs` checks that code moved between two files' recordings is an internal paste only when both are analyzed together. `node test/settings.mjs` checks the hide and sort rules and `node test/popup.mjs` checks the toolbar popup. Run the parity test after every upstream update. `python3 test/gen_synthetic.py <folder>` writes extra edge-case recordings.
+including rebuilding the whole file at a paste (with a folder, it also compares them with recan's real output). `node test/tabreturn.mjs` checks the return-to-Gradescope behavior with stand-ins for Chrome's tab APIs. `node test/previous-submissions.mjs` checks how the Previous Submission(s) test is read. `node test/instructions.mjs` checks that a paste from the instructions is approved only when the instructions are passed in, and `node test/test-output.mjs` does the same for the expected test output. `node test/cross-file.mjs` checks that code moved between two files' recordings is an internal paste only when both are analyzed together. `node test/settings.mjs` checks the hide and sort rules, `node test/popup.mjs` checks the toolbar popup and `node test/extension-times.mjs` checks the date picker on the Add an Extension form. Run the parity test after every upstream update. `python3 test/gen_synthetic.py <folder>` writes extra edge-case recordings.
 
 > [!WARNING]
 > Keep real recordings out of this repo; they're student work (`*.gz` is git-ignored).
@@ -286,6 +295,8 @@ src/                 content.js + content.css   the buttons, red flag, "?" popov
                      quality.js                 runs checker/quality.py in the Python session
                      settings.js                the settings, their defaults, and the hide/sort rules (page script + popup)
                      popup.*                    the toolbar popup where the settings are changed
+                     extension-times.js         WebRecan's date and time picker on the Add an Extension form (Extensions page)
+                     main-world-picker.js       runs in the page's own world: hands Gradescope's showPicker() call to the picker
                      viewer.*, sandbox.*        the tab that shows the recan player
 shims/               pydivsufsort.py stand-in
 scripts/             setup.mjs and its steps; fetch-starter-code.mjs, fetch-instructions.mjs, fetch-test-output.mjs, use-local-recan.mjs (optional)

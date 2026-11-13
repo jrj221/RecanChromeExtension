@@ -2,7 +2,7 @@
 // pages notice the change through chrome.storage.onChanged (content.js), so there is no Save button.
 
 const area = chrome.storage.sync ?? chrome.storage.local;
-const checkboxes = ["hideTestFiles", "hideInputOutputFiles", "hideInstructionsRecording", "autoCollapse"];
+const checkboxes = ["hideTestFiles", "hideInputOutputFiles", "hideInstructionsRecording", "autoCollapse", "extensionPicker"];
 const $ = (id) => document.getElementById(id);
 const sortRadios = () => [...document.querySelectorAll('input[name="sortOrder"]')];
 const status = $("status");

@@ -7,8 +7,8 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const source = readFileSync(resolve(root, "src/settings.js"), "utf8");
-const { WEBRECAN_DEFAULTS, webrecanIgnored, webrecanCompareFiles, webrecanNormalize } = new Function(
-  `${source}; return { WEBRECAN_DEFAULTS, webrecanIgnored, webrecanCompareFiles, webrecanNormalize };`,
+const { WEBRECAN_DEFAULTS, webrecanIgnored, webrecanCompareFiles, webrecanNormalize, webrecanIsDeadlineField, webrecanParseDateTime, webrecanFormatDateTime, webrecanTodayEndOfDay, webrecanIsAboutNow, webrecanMonthGrid } = new Function(
+  `${source}; return { WEBRECAN_DEFAULTS, webrecanIgnored, webrecanCompareFiles, webrecanNormalize, webrecanIsDeadlineField, webrecanParseDateTime, webrecanFormatDateTime, webrecanTodayEndOfDay, webrecanIsAboutNow, webrecanMonthGrid };`,
 )();
 
 // ---- hidden files ----
@@ -51,11 +51,60 @@ assert.equal("surprise" in webrecanNormalize({ surprise: 1 }), false, "unknown k
 assert.equal("hideNamesContaining" in webrecanNormalize({ hideNamesContaining: "x" }), false, "the removed custom-words setting is dropped");
 console.log("ok   stored settings are cleaned up");
 
+// ---- the Add Extension form's date picker ----
+assert.equal(webrecanIsDeadlineField("override[settings][dueDate][value]"), true);
+assert.equal(webrecanIsDeadlineField("override[settings][hardDueDate][value]"), true);
+assert.equal(webrecanIsDeadlineField("override[settings][releaseDate][value]"), false, "the release date isn't a deadline");
+assert.equal(webrecanIsDeadlineField("override[settings][dueDate][type]"), false);
+assert.equal(webrecanIsDeadlineField(""), false);
+
+assert.deepEqual(webrecanParseDateTime("2026-11-13T11:46"), { year: 2026, month: 11, day: 13, hour12: 11, minute: 46, pm: false });
+assert.deepEqual(webrecanParseDateTime("2026-11-13T23:59"), { year: 2026, month: 11, day: 13, hour12: 11, minute: 59, pm: true });
+assert.deepEqual(webrecanParseDateTime("2026-11-13T00:05"), { year: 2026, month: 11, day: 13, hour12: 12, minute: 5, pm: false }, "midnight is 12 AM");
+assert.deepEqual(webrecanParseDateTime("2026-11-13T12:30:15"), { year: 2026, month: 11, day: 13, hour12: 12, minute: 30, pm: true }, "noon is 12 PM; seconds are ignored");
+assert.equal(webrecanParseDateTime(""), null);
+assert.equal(webrecanParseDateTime("tomorrow"), null);
+for (const value of ["2026-11-13T00:00", "2026-11-13T09:07", "2026-11-13T12:00", "2026-11-13T13:45", "2026-11-13T23:59"]) {
+  assert.equal(webrecanFormatDateTime(webrecanParseDateTime(value)), value, `${value} survives a round trip`);
+}
+assert.equal(webrecanFormatDateTime({ year: 2026, month: 3, day: 4, hour12: 12, minute: 0, pm: false }), "2026-03-04T00:00", "12 AM");
+assert.equal(webrecanFormatDateTime({ year: 2026, month: 3, day: 4, hour12: 12, minute: 0, pm: true }), "2026-03-04T12:00", "12 PM");
+assert.equal(webrecanTodayEndOfDay(new Date(2026, 10, 3, 9, 5)), "2026-11-03T23:59");
+
+const now = new Date(2026, 10, 13, 11, 46);
+assert.equal(webrecanIsAboutNow("2026-11-13T11:46", now), true, "the form's own starting value");
+assert.equal(webrecanIsAboutNow("2026-11-13T11:50", now), true, "a few minutes off still counts");
+assert.equal(webrecanIsAboutNow("2026-11-13T15:00", now), false, "a time someone chose");
+assert.equal(webrecanIsAboutNow("2026-11-12T11:46", now), false, "yesterday isn't now");
+assert.equal(webrecanIsAboutNow("", now), false);
+
+// November 2026 starts on a Sunday; the calendar always shows 6 weeks, Sunday first
+const nov = webrecanMonthGrid(2026, 11);
+assert.equal(nov.length, 42);
+assert.deepEqual(nov[0], { year: 2026, month: 11, day: 1, inMonth: true });
+assert.deepEqual(nov[29], { year: 2026, month: 11, day: 30, inMonth: true });
+assert.deepEqual(nov[30], { year: 2026, month: 12, day: 1, inMonth: false }, "the next month fills the last weeks");
+// February 2026 starts on a Sunday too; March 2026 starts on a Sunday: use one that doesn't (October 2026 starts on a Thursday)
+const oct = webrecanMonthGrid(2026, 10);
+assert.deepEqual(oct[0], { year: 2026, month: 9, day: 27, inMonth: false }, "the days before the 1st come from the month before");
+assert.deepEqual(oct[4], { year: 2026, month: 10, day: 1, inMonth: true });
+const jan = webrecanMonthGrid(2027, 1);
+assert.deepEqual(jan[0], { year: 2026, month: 12, day: 27, inMonth: false }, "across a year boundary");
+const leap = webrecanMonthGrid(2028, 2);
+assert.ok(leap.some((cell) => cell.inMonth && cell.day === 29), "29 February in a leap year");
+assert.equal(webrecanMonthGrid(2027, 2).filter((cell) => cell.inMonth).length, 28);
+assert.equal(WEBRECAN_DEFAULTS.extensionPicker, true);
+console.log("ok   the Add Extension form: which fields get the picker, date and time conversion, and the calendar grid");
+
 // ---- wiring ----
 const manifest = JSON.parse(readFileSync(resolve(root, "manifest.json"), "utf8"));
-assert.deepEqual(manifest.content_scripts[0].js, ["src/settings.js", "src/content.js"], "settings.js loads before content.js");
+assert.deepEqual(manifest.content_scripts[0].js, ["src/settings.js", "src/extension-times.js", "src/content.js"], "settings.js loads before the scripts that use it");
 assert.equal(manifest.action.default_popup, "src/popup.html");
-for (const file of ["src/popup.html", "src/popup.js", "src/popup.css", "src/settings.js"]) assert.ok(existsSync(resolve(root, file)), `${file} exists`);
+const mainWorld = manifest.content_scripts.find((entry) => entry.world === "MAIN");
+assert.deepEqual(mainWorld?.js, ["src/main-world-picker.js"], "the page-world script is declared to run in the page's own world");
+assert.equal(mainWorld.run_at, "document_start", "and early, before the page can call showPicker()");
+assert.deepEqual(mainWorld.matches, manifest.content_scripts[0].matches);
+for (const file of ["src/popup.html", "src/popup.js", "src/popup.css", "src/settings.js", "src/extension-times.js", "src/main-world-picker.js"]) assert.ok(existsSync(resolve(root, file)), `${file} exists`);
 const html = readFileSync(resolve(root, "src/popup.html"), "utf8");
 assert.ok(html.indexOf('src="settings.js"') > -1 && html.indexOf('src="settings.js"') < html.indexOf('src="popup.js"'), "the popup loads settings.js first");
 assert.ok(!/<script(?![^>]*\bsrc=)[^>]*>/i.test(html), "no inline scripts (the extension's content security policy forbids them)");

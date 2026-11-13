@@ -160,3 +160,48 @@
 .webrecan-dialog .buttons { display: flex; justify-content: flex-end; gap: 8px; }
 .webrecan-dialog button { padding: 5px 14px; border: 1.5px solid #dadce0; border-radius: 6px; background: #fff; color: #202124; font: 600 13px/1.4 system-ui, sans-serif; cursor: pointer; }
 .webrecan-dialog button.ok { border-color: #1a73e8; background: #1a73e8; color: #fff; }
+
+/* WebRecan's own date and time picker for the Add an Extension form (extension-times.js). It has its own class, not
+   .webrecan-dialog: content.js removes any .webrecan-dialog it didn't create, which would delete the picker. */
+.webrecan-pickable { cursor: pointer; }
+.webrecan-pickerdialog { position: fixed; inset: 0; z-index: 2147483000; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.4); font: 14px/1.45 system-ui, sans-serif; }
+.webrecan-pickerdialog [hidden] { display: none !important; }
+.webrecan-pickerdialog .box { box-sizing: border-box; width: min(440px, calc(100vw - 32px)); padding: 18px 20px 16px; border-radius: 12px; background: #fff; color: #202124; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.3); }
+.webrecan-pickerdialog .title { margin-bottom: 6px; font-size: 17px; font-weight: 700; }
+.webrecan-pickerdialog button { box-sizing: border-box; min-width: 0; min-height: 0; margin: 0; padding: 5px 14px; border: 1.5px solid #dadce0; border-radius: 6px; background: #fff; color: #202124; font: 600 13px/1.4 system-ui, sans-serif; text-align: center; cursor: pointer; }
+
+/* month and days: every day is a same-size circle, centered in its column */
+.webrecan-pickerdialog .nav { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 8px; }
+.webrecan-pickerdialog .month { font-weight: 600; }
+.webrecan-pickerdialog button.step { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; border-color: transparent; border-radius: 50%; font-size: 18px; line-height: 1; }
+.webrecan-pickerdialog button.step:hover { background: #f1f3f4; }
+.webrecan-pickerdialog .grid { display: grid; grid-template-columns: repeat(7, 36px); gap: 2px 4px; justify-content: center; justify-items: center; align-items: center; }
+.webrecan-pickerdialog .dow { display: flex; align-items: center; justify-content: center; width: 36px; height: 24px; color: #5f6368; font-size: 11px; font-weight: 600; }
+.webrecan-pickerdialog button.day { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border: 1.5px solid transparent; border-radius: 50%; background: transparent; font-weight: 400; line-height: 1; }
+.webrecan-pickerdialog button.day:hover { background: #f1f3f4; }
+.webrecan-pickerdialog button.day.other { color: #9aa0a6; }
+.webrecan-pickerdialog button.day.today { border-color: #1a73e8; }
+.webrecan-pickerdialog button.day.selected { background: #1a73e8; border-color: #1a73e8; color: #fff; font-weight: 600; }
+
+/* layout: the calendar on the left, the time on the right */
+.webrecan-pickerdialog .layout { display: flex; align-items: flex-start; gap: 20px; }
+.webrecan-pickerdialog .calendar { flex: none; }
+
+/* time: three fields, one above the other; clicking one opens its list just above it */
+.webrecan-pickerdialog .time { display: flex; flex: 1 1 auto; flex-direction: column; gap: 8px; min-width: 0; padding: 4px 0 0 18px; border-left: 1px solid #e8eaed; }
+.webrecan-pickerdialog .time-title { margin-bottom: 2px; color: #5f6368; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.webrecan-pickerdialog .wheel-column { position: relative; }
+.webrecan-pickerdialog button.timefield { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 6px 10px; border: 1px solid #dadce0; border-radius: 8px; background: #fff; font-weight: 600; }
+.webrecan-pickerdialog button.timefield::after { content: ""; width: 6px; height: 6px; margin-left: 8px; border-right: 2px solid #5f6368; border-bottom: 2px solid #5f6368; transform: rotate(-135deg) translate(-1px, -1px); }
+.webrecan-pickerdialog button.timefield:hover { border-color: #9aa0a6; }
+.webrecan-pickerdialog button.timefield[aria-expanded="true"] { border-color: #1a73e8; box-shadow: 0 0 0 1px #1a73e8; }
+.webrecan-pickerdialog .wheel-pop { position: absolute; left: 0; right: 0; bottom: calc(100% + 4px); z-index: 1; padding: 3px; border: 1px solid #dadce0; border-radius: 10px; background: #fff; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22); }
+.webrecan-pickerdialog .wheel { display: flex; flex-direction: column; gap: 2px; max-height: 148px; overflow-y: auto; scrollbar-width: thin; }
+.webrecan-pickerdialog button.opt { flex: none; width: 100%; padding: 6px 0; border: 0; border-radius: 7px; background: transparent; font-weight: 400; }
+.webrecan-pickerdialog button.opt:hover { background: #eef0f3; }
+.webrecan-pickerdialog button.opt.on { background: #1a73e8; color: #fff; font-weight: 600; }
+.webrecan-pickerdialog button.preset { display: block; width: 100%; margin: 4px 0 0; padding: 5px 6px; border-color: #1a73e8; color: #174ea6; font-size: 12px; font-weight: 600; white-space: normal; }
+.webrecan-pickerdialog button.preset:hover { background: #e8f0fe; }
+
+.webrecan-pickerdialog .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.webrecan-pickerdialog button.ok { border-color: #1a73e8; background: #1a73e8; color: #fff; }
