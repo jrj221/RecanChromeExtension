@@ -22,3 +22,7 @@ def writelines(filename, content):
         file.writelines(content)
 ---
 'f'
+---
+lines = readlines(infile)
+lines = add_bullets(lines, bullet)
+writelines(outfile, lines)
