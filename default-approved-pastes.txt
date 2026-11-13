@@ -5,3 +5,10 @@ if __name__ == "__main__":
     main()
 ---
 import sys
+---
+def writelines(filename, content):
+    with open(filename, 'w') as file:
+        file.writelines(content)
+def readlines(filename):
+    with open(filename) as file:
+        return file.readlines()
