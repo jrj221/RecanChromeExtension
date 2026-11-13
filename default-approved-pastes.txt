@@ -20,3 +20,5 @@ def readlines(filename):
 def writelines(filename, content):
     with open(filename, 'w') as file:
         file.writelines(content)
+---
+'f'
