@@ -187,8 +187,9 @@ Click the WebRecan icon in Chrome's toolbar (pin it from the puzzle-piece menu i
 as soon as you make it and applies to open Gradescope pages right away. They are kept with Chrome's extension storage,
 so they follow your Chrome profile to another computer when sync is on.
 
-- **Hidden files.** Turn each rule on or off: names starting with `test`, names with `input` or `output` in them, and
-  the instructions recording. A hidden file isn't shown, analyzed, flagged or checked for code quality, so un-hiding a
+- **Hidden files.** Turn each rule on or off: names starting with `test`, names with `input` or `output` in them,
+  the instructions recording, and recordings of recordings (`.recording.jsonl` in the name twice or more, like
+  `x.recording.jsonl.recording.jsonl.gz`). A hidden file isn't shown, analyzed, flagged or checked for code quality, so un-hiding a
   file also gets it checked.
 - **File order.** Recordings first, `.py` files first, or Gradescope's own order. Files are alphabetical within each
   group. This only changes how the list is drawn, not Gradescope's page.

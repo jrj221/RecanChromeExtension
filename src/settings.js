@@ -6,6 +6,7 @@ const WEBRECAN_DEFAULTS = {
   hideTestFiles: true, // names starting with "test"
   hideInputOutputFiles: true, // "input" or "output" anywhere in the name
   hideInstructionsRecording: true, // instructions.recording.jsonl.gz
+  hideRepeatedRecordings: true, // recordings of recordings: ".recording.jsonl" more than once in the name
   sortOrder: "recordings", // "recordings" (recordings first), "python" (.py files first) or "default" (Gradescope's order)
   autoCollapse: true, // collapse the file Gradescope opens by default
   extensionPicker: true, // on the Add Extension form, WebRecan's own date and time picker for the due and late due date fields (src/extension-times.js)
@@ -18,6 +19,7 @@ function webrecanIgnored(settings, path) {
   const name = String(path).split("/").pop().toLowerCase();
   if (settings.hideTestFiles && name.startsWith("test")) return true;
   if (settings.hideInstructionsRecording && name === "instructions.recording.jsonl.gz") return true;
+  if (settings.hideRepeatedRecordings && name.split(".recording.jsonl").length > 2) return true; // x.recording.jsonl.recording.jsonl.gz
   return !!settings.hideInputOutputFiles && (name.includes("input") || name.includes("output"));
 }
 

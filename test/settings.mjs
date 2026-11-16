@@ -29,7 +29,20 @@ assert.equal(hidden({ hideInputOutputFiles: false }, "words_output.py"), false);
 assert.equal(hidden({ hideInputOutputFiles: false }, "test_words.py"), true);
 assert.equal(hidden({ hideInstructionsRecording: false }, "instructions.recording.jsonl.gz"), false);
 assert.equal(hidden({ hideInstructionsRecording: false }, "my_instructions.recording.jsonl.gz"), false, "only that exact name");
-assert.equal(hidden({ hideTestFiles: false, hideInputOutputFiles: false, hideInstructionsRecording: false }, "test_output.py"), false, "everything off: nothing is hidden");
+assert.equal(hidden({ hideTestFiles: false, hideInputOutputFiles: false, hideInstructionsRecording: false, hideRepeatedRecordings: false }, "test_output.py"), false, "everything off: nothing is hidden");
+for (const name of [
+  "average_income.recording.jsonl.recording.jsonl.gz",
+  "average_income.recording.jsonl.recording.jsonl.recording.jsonl.gz",
+  "older_customers.recording.jsonl.recording.jsonl.recording.jsonl.recording.jsonl.gz",
+  "Average_Income.Recording.JSONL.Recording.JSONL.gz",
+  "hw/sub/sum_nums.recording.jsonl.recording.jsonl.gz",
+]) assert.equal(hidden({}, name), true, `${name}: a recording of a recording is hidden by default`);
+for (const name of ["average_income.recording.jsonl.gz", "average_income.py", "recording.jsonl.gz", "my.recording.jsonl.gz.old", "recording.jsonl.py"]) {
+  assert.equal(hidden({}, name), false, `${name}: one .recording.jsonl is a normal recording`);
+}
+assert.equal(hidden({ hideRepeatedRecordings: false }, "average_income.recording.jsonl.recording.jsonl.gz"), false, "and it can be switched off");
+assert.equal(hidden({ hideRepeatedRecordings: false }, "test_x.recording.jsonl.recording.jsonl.gz"), true, "the other rules still apply");
+assert.equal(WEBRECAN_DEFAULTS.hideRepeatedRecordings, true, "on by default");
 console.log("ok   each hiding rule can be switched off on its own");
 
 
