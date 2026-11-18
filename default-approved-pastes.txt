@@ -14,6 +14,9 @@ def writelines(filename, content):
 def readlines(filename):
     with open(filename) as file:
         return file.readlines()
+def read_lines(infile):
+    with open(infile) as file:
+        return file.readlines()
 ---
 import sys
 def readlines(filename):
