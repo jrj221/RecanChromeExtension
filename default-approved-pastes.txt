@@ -6,6 +6,8 @@ if __name__ == "__main__":
 ---
 import sys
 ---
+import random
+---
 def writelines(filename, content):
     with open(filename, 'w') as file:
         file.writelines(content)
